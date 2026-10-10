@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AnythingLLM 文件上传</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    min-height: 100vh;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex; align-items: flex-start; justify-content: center;
+    padding: 40px 16px;
+  }
+  .card {
+    width: 100%; max-width: 640px;
+    background: #fff; border-radius: 18px;
+    box-shadow: 0 20px 50px rgba(0,0,0,.25);
+    padding: 32px 32px 28px;
+  }
+  h1 { font-size: 22px; display: flex; align-items: center; gap: 10px; }
+  h1 .logo { font-size: 28px; }
+  p.sub { color: #888; font-size: 13px; margin: 6px 0 22px; }
+  .field { margin-bottom: 16px; }
+  .field label { display: block; font-size: 13px; font-weight: 600; color: #444; margin-bottom: 6px; }
+  .row { display: flex; gap: 8px; }
+  input[type=text], input[type=password] {
+    flex: 1; padding: 10px 12px; border: 1px solid #d8d8e6; border-radius: 9px;
+    font-size: 14px; outline: none; transition: border-color .15s;
+  }
+  input:focus { border-color: #667eea; }
+  .btn {
+    padding: 10px 18px; border: none; border-radius: 9px; cursor: pointer;
+    font-size: 14px; font-weight: 600; white-space: nowrap;
+  }
+  .btn-primary { background: linear-gradient(135deg,#667eea,#764ba2); color: #fff; }
+  .btn-primary:hover { filter: brightness(1.08); }
+  .btn-ghost { background: #f0f0f6; color: #555; }
+  .btn-ghost:hover { background: #e5e5ef; }
+  .btn:disabled { opacity: .55; cursor: not-allowed; }
+  .workspace-box {
+    display: none; align-items: center; gap: 12px;
+    background: #f4f6ff; border: 1px solid #dde3ff; border-radius: 12px;
+    padding: 12px 14px; margin-bottom: 20px;
+  }
+  .workspace-box.on { display: flex; }
+  .ws-ico { font-size: 24px; }
+  .ws-name { font-weight: 700; font-size: 15px; }
+  .ws-slug { font-size: 12px; color: #777; word-break: break-all; margin-top: 2px; }
+  .ws-tag { margin-left: auto; font-size: 12px; color: #667eea; background:#e8ecff; padding: 4px 10px; border-radius: 999px; white-space: nowrap; }
+  .dropzone {
+    border: 2px dashed #c4c9e8; border-radius: 14px; padding: 30px 16px;
+    text-align: center; color: #667eea; cursor: pointer; transition: all .15s;
+  }
+  .dropzone:hover, .dropzone.drag { border-color: #667eea; background: #f5f6ff; }
+  .dropzone .big { font-size: 34px; }
+  .dropzone p { font-size: 14px; color: #555; }
+  .file-list { margin-top: 14px; display: none; }
+  .file-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px; border-radius: 10px; background: #fafafd;
+    border: 1px solid #eee; margin-bottom: 6px; font-size: 13px;
+  }
+  .file-item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-item .size { color: #999; font-size: 12px; }
+  .status { font-size: 12px; font-weight: 700; border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
+  .st-wait { color: #666; background: #f0f0f5; }
+  .st-run  { color: #2563eb; background: #dbeafe; }
+  .st-ok   { color: #15803d; background: #dcfce7; }
+  .st-err  { color: #b91c1c; background: #fee2e2; }
+  .actions { margin-top: 16px; }
+  .log { margin-top: 16px; display: none; }
+  .log .item {
+    border-radius: 10px; padding: 10px 12px; margin-bottom: 8px;
+    font-size: 13px; line-height: 1.5;
+  }
+  .log .ok   { background: #f0fdf4; border: 1px solid #bbf7d0; color: #14532d; }
+  .log .err  { background: #fef2f2; border: 1px solid #fecaca; color: #7f1d1d; }
+  .toast {
+    position: fixed; top: 24px; left: 50%; transform: translateX(-50%);
+    background: #333; color: #fff; padding: 10px 20px; border-radius: 999px;
+    font-size: 13px; opacity: 0; pointer-events: none; transition: opacity .25s; z-index: 99;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1><span class="logo">📚</span> AnythingLLM 文件上传</h1>
+    <p class="sub">选择本地文件，上传到「第一个工作区」并完成向量嵌入</p>
+
+    <div class="field">
+      <label for="apiKey">API Key</label>
+      <div class="row">
+        <input type="password" id="apiKey" placeholder="AnythingLLM 的 API Key（仅保存在本机浏览器）">
+        <button class="btn btn-ghost" id="btnLoad">加载工作区</button>
+      </div>
+    </div>
+
+    <div class="workspace-box" id="wsBox">
+      <div class="ws-ico">🗂️</div>
+      <div>
+        <div class="ws-name" id="wsName"></div>
+        <div class="ws-slug" id="wsSlug"></div>
+      </div>
+      <div class="ws-tag">第一个工作区</div>
+    </div>
+
+    <div class="dropzone" id="dropzone">
+      <div class="big">📁</div>
+      <p><b>点击选择文件</b> 或 拖拽到此处</p>
+      <p style="font-size:12px;color:#aaa;margin-top:4px">支持多选，上传后自动嵌入</p>
+      <input type="file" id="fileInput" multiple hidden>
+    </div>
+
+    <div class="file-list" id="fileList"></div>
+
+    <div class="actions">
+      <button class="btn btn-primary" id="btnUpload" style="width:100%" disabled>🚀 上传并嵌入</button>
+      <p style="font-size:12px;color:#999;margin-top:8px" id="uploadHint">请先加载工作区，再选择一个或多个文件</p>
+    </div>
+
+    <div class="log" id="log"></div>
+  </div>
+  <div class="toast" id="toast"></div>
+
+<script>
+const API = "http://127.0.0.1:3001";
+const $ = id => document.getElementById(id);
+const apiKeyEl = $("apiKey"), fileInput = $("fileInput"), dropzone = $("dropzone");
+const fileList = $("fileList"), actions = $("actions"), btnUpload = $("btnUpload");
+const log = $("log"), wsBox = $("wsBox"), toast = $("toast");
+let files = [];
+let workspace = null;   // 第一个工作区 { name, slug }
+
+/* ---------- 小工具 ---------- */
+function saveKey(k) { try { localStorage.setItem("allm_key", k); } catch (_) {} }
+function loadKey()   { try { return localStorage.getItem("allm_key") || ""; } catch (_) { return ""; } }
+function refreshUploadBtn() {
+  const ready = files.length > 0;
+  btnUpload.disabled = !ready;
+  btnUpload.textContent = ready ? `🚀 上传并嵌入（${files.length} 个文件）` : "🚀 上传并嵌入";
+  $("uploadHint").textContent = ready
+    ? (workspace ? `将上传到工作区「${workspace.name}」并自动嵌入` : "请先点击「加载工作区」")
+    : "请先加载工作区，再选择一个或多个文件";
+}
+function showToast(msg, ms = 2200) {
+  toast.textContent = msg; toast.classList.add("show");
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => toast.classList.remove("show"), ms);
+}
+function fmtSize(b) {
+  if (b < 1024) return b + " B";
+  if (b < 1048576) return (b / 1024).toFixed(1) + " KB";
+  return (b / 1048576).toFixed(1) + " MB";
+}
+async function api(path, options = {}) {
+  const key = loadKey();
+  const headers = { Authorization: "Bearer " + key, ...(options.headers || {}) };
+  const res = await fetch(API + path, { ...options, headers });
+  let data = null;
+  try { data = await res.json(); } catch (_) {}
+  if (!res.ok || (data && data.error)) {
+    throw new Error((data && data.error) || ("HTTP " + res.status));
+  }
+  return data;
+}
+
+/* ---------- API Key ---------- */
+apiKeyEl.value = loadKey();
+apiKeyEl.addEventListener("change", () => saveKey(apiKeyEl.value.trim()));
+
+/* ---------- 加载第一个工作区 ---------- */
+$("btnLoad").addEventListener("click", async () => {
+  const key = apiKeyEl.value.trim();
+  if (!key) return showToast("请先输入 API Key");
+  saveKey(key);
+  $("btnLoad").disabled = true; $("btnLoad").textContent = "加载中…";
+  try {
+    const data = await api("/api/v1/workspaces");
+    const ws = data && data.workspaces && data.workspaces[0];
+    if (!ws) return showToast("没有任何工作区");
+    workspace = ws;
+    $("wsName").textContent = ws.name;
+    $("wsSlug").textContent = "slug: " + ws.slug;
+    wsBox.classList.add("on");
+    showToast("已加载第一个工作区：" + ws.name);
+    refreshUploadBtn();
+  } catch (e) {
+    showToast("工作区加载失败：" + e.message);
+  } finally {
+    $("btnLoad").disabled = false; $("btnLoad").textContent = "加载工作区";
+  }
+});
+
+/* ---------- 选择文件 ---------- */
+function setFiles(list) {
+  files = Array.from(list);
+  fileList.innerHTML = files.map((f, i) => `
+    <div class="file-item" id="fi-${i}">
+      <span>📄</span>
+      <span class="name">${f.name}</span>
+      <span class="size">${fmtSize(f.size)}</span>
+      <span class="status st-wait">待上传</span>
+    </div>`).join("");
+  fileList.style.display = files.length ? "block" : "none";
+  refreshUploadBtn();
+}
+dropzone.addEventListener("click", () => fileInput.click());
+dropzone.addEventListener("dragover", e => { e.preventDefault(); dropzone.classList.add("drag"); });
+dropzone.addEventListener("dragleave", () => dropzone.classList.remove("drag"));
+dropzone.addEventListener("drop", e => { e.preventDefault(); dropzone.classList.remove("drag"); setFiles(e.dataTransfer.files); });
+fileInput.addEventListener("change", () => setFiles(fileInput.files));
+
+/* ---------- 上传并嵌入 ---------- */
+function setStatus(i, cls, text) {
+  const el = $("fi-" + i).querySelector(".status");
+  el.className = "status " + cls; el.textContent = text;
+}
+function addLog(ok, html) {
+  const div = document.createElement("div");
+  div.className = "item " + (ok ? "ok" : "err");
+  div.innerHTML = html;
+  log.appendChild(div);
+  log.style.display = "block";
+}
+
+btnUpload.addEventListener("click", async () => {
+  if (!workspace) return showToast("请先点击「加载工作区」");
+  if (!files.length) return showToast("请先选择文件");
+  log.innerHTML = ""; log.style.display = "none";
+  btnUpload.disabled = true;
+  let ok = 0, fail = 0;
+
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    setStatus(i, "st-run", "上传中…");
+    const fd = new FormData();
+    fd.append("file", f);
+    fd.append("addToWorkspaces", workspace.slug);
+    try {
+      const data = await api("/api/v1/document/upload", { method: "POST", body: fd });
+      if (!data || !data.success) throw new Error((data && data.error) || "unknown error");
+      const docs = (data.documents || []).map(d => d.title || d.name || "").filter(Boolean).join("、");
+      setStatus(i, "st-ok", "✓ 已嵌入");
+      addLog(true, `<b>✅ ${f.name}</b> 上传并嵌入成功<br>文档：${docs || "(已加入工作区)"}<br>目标工作区：${workspace.name}（${workspace.slug}）`);
+      ok++;
+    } catch (e) {
+      setStatus(i, "st-err", "失败");
+      addLog(false, `<b>❌ ${f.name}</b> 失败：${e.message}`);
+      fail++;
+    }
+  }
+  refreshUploadBtn();
+  showToast(`完成：${ok} 个成功，${fail} 个失败`);
+});
+
+/* key 优先用本地存储的值 */
+if (loadKey()) apiKeyEl.placeholder = "已保存，可直接加载工作区";
+</script>
+</body>
+</html>
