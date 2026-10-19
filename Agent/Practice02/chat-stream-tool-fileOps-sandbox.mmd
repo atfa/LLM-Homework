@@ -1,0 +1,50 @@
+%% ============================================================
+%% chat-stream-tool-fileOps.py 代码架构图（续）
+%% 图 3：文件沙箱安全边界与防护规则
+%% ============================================================
+flowchart LR
+    subgraph IN["模型提出的任意路径参数"]
+        A1["相对路径 ../etc/passwd"]
+        A2["绝对路径 /tmp/x"]
+        A3["符号链接 pointing outside"]
+        A4["filename 含 'a/b' 或 '..'"]
+        A5["deleteDir 非空目录"]
+        A6["重命名到已存在的名字"]
+    end
+
+    subgraph GUARD["防护闸门"]
+        G1["resolve_path()<br/>expanduser + join(WORKSPACE) + realpath<br/>target 必须 == WORKSPACE<br/>或以 WORKSPACE + os.sep 开头"]
+        G2["名字校验<br/>拒绝 '.' / '..' / os.sep / os.altsep"]
+        G3["recursive 必须是 bool<br/>目录非空且 recursive=False → 报错"]
+        G4["lexists 预检 + samefile<br/>大小写改名的合法例外"]
+        G5["target == WORKSPACE → 禁止操作"]
+    end
+
+    subgraph SAFE["沙箱内允许的操作"]
+        S1["WORKSPACE 子树"]
+    end
+
+    A1 --> G1
+    A2 --> G1
+    A3 --> G1
+    A4 --> G2
+    A5 --> G3
+    A6 --> G4
+    G1 --> S1
+    G2 --> S1
+    G3 --> S1
+    G4 --> S1
+    G5 --> S1
+    G1 -.->|"raise ValueError"| X["以 '工具执行失败：...'<br/>文本回传模型，循环继续"]
+    G2 -.-> X
+    G3 -.-> X
+    G4 -.-> X
+    G5 -.-> X
+
+    classDef bad fill:#fbe3e3,stroke:#c0392b,color:#311
+    classDef mid fill:#fff6cc,stroke:#c8a000,color:#321
+    classDef ok fill:#e9f7ea,stroke:#3f9b48,color:#123
+    class A1,A2,A3,A4,A5,A6 bad
+    class G1,G2,G3,G4,G5 mid
+    class S1 ok
+    class X bad

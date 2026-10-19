@@ -1,0 +1,123 @@
+%% ============================================================
+%% chat-stream-tool-fileOps.py 代码架构图
+%% 一个「流式对话 + 本地函数调用（Tool Calling）」的 REPL 脚本
+%% 图 1：整体分层架构
+%% ============================================================
+flowchart TB
+    subgraph L0["① 启动与配置层"]
+        CFG["config.ini<br/>base_url / api_key / model"]
+        INIT["模块级初始化<br/>configparser 读取配置<br/>stdout 强制 UTF-8"]
+        WS["WORKSPACE = realpath(cwd)<br/>（文件沙箱根目录）"]
+        LIM["常量上限<br/>MAX_READ_BYTES = 256KB<br/>MAX_LIST_ENTRIES = 200"]
+    end
+
+    subgraph L1["② 工具契约层（下发给模型的能力声明）"]
+        TOOLS["tools: list[dict]<br/>OpenAI function-calling schema<br/>12 个工具的 name / description / parameters"]
+    end
+
+    subgraph L2["③ 主循环层（REPL + Agent 回合）"]
+        INPUT["input():<br/>please input your prompt"]
+        HIST["history<br/>只累积最终问答对<br/>不存工具调用细节"]
+        MSG["messages = history + 本轮 user"]
+        LOOP{"Agent 内层循环<br/>while True"}
+        TURNEND["history += user / assistant<br/>结束本轮"]
+    end
+
+    subgraph L3["④ 通信层（流式 HTTP / SSE）"]
+        CHAT["chat_stream(messages)"]
+        HTTP["requests.post(stream=True)<br/>POST /chat/completions<br/>timeout = 60s"]
+        SSE["SSE 逐行解析<br/>data: {...} → choices[0].delta"]
+        ACC["双通道累积<br/>reply: 正文 text<br/>calls[index]: id / name / arguments"]
+    end
+
+    subgraph L4["⑤ 工具分发层"]
+        RUN["run_tool(name, arguments)"]
+        JSON["json.loads(arguments)<br/>非 dict → 报错文本"]
+        REG[("TOOL_HANDLERS<br/>name → handler 字典注册表")]
+        ERR["异常兜底<br/>OSError / ValueError<br/>→ 可读文本回传模型"]
+    end
+
+    subgraph L5["⑥ 工具实现层（handler）"]
+        direction TB
+        subgraph TG["时间与日历"]
+            H1["tool_get_date<br/>subprocess date"]
+            H2["tool_is_leap_year<br/>parse_year + describe_leap_year"]
+        end
+        subgraph TF["沙箱文件操作"]
+            H3["tool_get_cwd"]
+            H4["tool_list_dir<br/>scandir 排序 + 大小"]
+            H5["tool_get_file_type<br/>扩展名 / MIME / 文本判定"]
+            H6["tool_read_file"]
+            H7["tool_create_file<br/>x 独占模式"]
+            H8["tool_edit_file<br/>overwrite / append"]
+            H9["tool_create_dir<br/>makedirs"]
+            H10["tool_delete_dir<br/>recursive 二次确认"]
+            H11["tool_delete_file"]
+            H12["tool_rename_path<br/>同目录原地改名"]
+        end
+    end
+
+    subgraph L6["⑦ 公共支撑（helpers）"]
+        direction LR
+        P1["resolve_path<br/>realpath 拼接<br/>越界即拒绝"]
+        P2["relative<br/>显示用相对路径"]
+        P3["format_size<br/>B / KB / MB / GB"]
+        P4["sniff_text<br/>空字节检测<br/>utf-8 → gb18030"]
+        P5["read_text_file<br/>存在性 / 普通文件 /<br/>按换行截断"]
+        P6["count_entries<br/>os.walk 统计项数"]
+    end
+
+    subgraph L7["⑧ 本机文件系统（受沙箱约束）"]
+        FS[("WORKSPACE 目录树")]
+        OS2["操作系统 date 命令"]
+    end
+
+    %% ---- 主链路 ----
+    CFG --> INIT
+    INIT --> WS
+    INIT --> LIM
+    INIT --> TOOLS
+    TOOLS --> HTTP
+
+    INPUT --> HIST
+    HIST --> MSG
+    MSG --> LOOP
+    LOOP --> CHAT
+    CHAT --> HTTP
+    HTTP --> SSE
+    SSE --> ACC
+    ACC -->|"calls 为空"| TURNEND
+    ACC -->|"calls 非空"| APPEND["messages += assistant(tool_calls)<br/>（先记录调用意图）"]
+    APPEND --> FOREACH["逐个 call 执行"]
+    FOREACH --> RUN
+    RUN --> JSON
+    JSON --> REG
+    REG --> H1 & H2 & H3 & H4 & H5 & H6 & H7 & H8 & H9 & H10 & H11 & H12
+    RUN -.->|"异常"| ERR
+    FOREACH -->|"messages += tool(tool_call_id, result)"| LOOP
+    TURNEND --> INPUT
+
+    %% ---- 工具 → 支撑 → 文件系统 ----
+    H4 & H5 & H6 & H7 & H8 & H9 & H10 & H11 & H12 --> P1
+    H4 & H5 & H6 --> P2
+    H4 & H5 & H6 & H7 & H8 & H10 & H11 --> P3
+    H5 & H6 & H8 --> P4
+    H6 & H8 --> P5
+    H10 --> P6
+    P1 --> FS
+    H3 --> WS
+    H1 --> OS2
+
+    classDef cfg fill:#e8f1fb,stroke:#3f7ebf,color:#123
+    classDef net fill:#fdeee0,stroke:#d9822b,color:#321
+    classDef disp fill:#fff6cc,stroke:#c8a000,color:#321
+    classDef impl fill:#e9f7ea,stroke:#3f9b48,color:#123
+    classDef help fill:#f2ecfa,stroke:#7d5bb8,color:#123
+    classDef root fill:#e6e6e6,stroke:#666,color:#111
+
+    class CFG,INIT,WS,LIM,INPUT,HIST,MSG,LOOP,TURNEND,APPEND,FOREACH,TOOLS,CHAT cfg
+    class HTTP,SSE,ACC net
+    class RUN,JSON,REG,ERR disp
+    class H1,H2,H3,H4,H5,H6,H7,H8,H9,H10,H11,H12 impl
+    class P1,P2,P3,P4,P5,P6 help
+    class FS,OS2 root

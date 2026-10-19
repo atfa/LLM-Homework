@@ -1,0 +1,46 @@
+%% ============================================================
+%% chat-stream-tool-fileOps.py 代码架构图（续）
+%% 图 2：一次提问的时序（含工具调用循环） + 沙箱安全设计
+%% ============================================================
+sequenceDiagram
+    autonumber
+    actor U as 用户 (stdin)
+    participant M as 主循环<br/>(history / messages)
+    participant C as chat_stream()
+    participant S as LLM 服务端<br/>(/chat/completions)
+    participant R as run_tool()
+    participant H as handler<br/>(tool_*)
+    participant F as WORKSPACE 文件系统
+
+    U->>M: input() 读取 prompt
+    M->>M: messages = history + {role: user, content: prompt}
+
+    loop Agent 内层循环（直到不再要求调用工具）
+        M->>C: chat_stream(messages)
+        C->>S: POST stream=True, tools=schema
+        S-->>C: SSE: delta.content（边收边 print）
+        S-->>C: SSE: delta.tool_calls（arguments 分片拼接）
+        C-->>M: (content, calls)
+
+        alt calls 为空 → 已得到最终答复
+            M->>M: history += user / assistant(content)
+            Note over M: 本轮结束，工具细节不写入 history
+        else calls 非空 → 需要执行工具
+            M->>M: messages += assistant(content, tool_calls[])
+            loop 对每个 call
+                M->>R: run_tool(name, arguments)
+                R->>R: json.loads → 取 TOOL_HANDLERS[name]
+                R->>H: handler(args)
+                H->>H: resolve_path() 沙箱校验
+                H->>F: 读/写/删除/改名
+                F-->>H: 结果或 OSError
+                H-->>R: 可读结果文本
+                Note over R: OSError/ValueError 也转成文本，<br/>不抛给主循环
+                R-->>M: result
+                M->>M: messages += {role: tool, tool_call_id, content: result}
+            end
+            Note over M,S: 带着工具结果再次请求，模型继续生成
+        end
+    end
+
+    Note over C,S: 细节：resp.encoding 强制 UTF-8<br/>否则 SSE 中文乱码；<br/>HTTP != 200 直接 sys.exit(1)
