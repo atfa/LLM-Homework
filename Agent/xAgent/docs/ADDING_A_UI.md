@@ -6,8 +6,8 @@ xAgent 的 core 不依赖 Textual。任何界面只要满足下面的契约，�
 ## 1. 契约
 
 ```python
-from xagent.composition import build_runtime
-from xagent.application.events import (
+from xagent.core.composition import build_runtime
+from xagent.core.application.events import (
     TurnStarted, IterationStarted, AssistantTextDelta, IterationCompleted,
     ToolCallStarted, ToolCallFinished, TurnCompleted, TurnFailed,
 )
@@ -54,8 +54,8 @@ from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from xagent.application.events import AssistantTextDelta, ToolCallFinished, TurnCompleted, TurnFailed
-from xagent.composition import build_runtime
+from xagent.core.application.events import AssistantTextDelta, ToolCallFinished, TurnCompleted, TurnFailed
+from xagent.core.composition import build_runtime
 
 app = FastAPI()
 runtime = build_runtime()
@@ -98,8 +98,8 @@ async def shutdown() -> None:
 import asyncio
 from PySide6.QtCore import QThread, Signal
 
-from xagent.application.events import AssistantTextDelta, TurnCompleted, TurnFailed
-from xagent.composition import build_runtime
+from xagent.core.application.events import AssistantTextDelta, TurnCompleted, TurnFailed
+from xagent.core.composition import build_runtime
 
 
 class AgentThread(QThread):
@@ -133,11 +133,13 @@ class AgentThread(QThread):
 
 ## 5. 规则
 
-- 不要在界面层 import `xagent.infrastructure.*`；只通过 `build_runtime()` 拿运行时。
+- 不要在界面层 import `xagent.core.infrastructure.*`；只通过 `build_runtime()` 拿运行时。
 - 不要在界面层自己拼 JSON 消息或解析 SSE；那是基础设施层的职责。
 - 不要绕开 `AgentService` 直接调工具；否则历史、轮数上限、截断都会失效。
-- 新界面应放在 `xagent/interfaces/<name>/`，并在 `tests/test_layering.py`
-  的 `LAYER_RULES["interfaces"]` 里补上它需要的第三方包（如 `fastapi`、`PySide6`）。
+- 新界面应放在 `xagent/<name>/`（如 `xagent/web/`、`xagent/desktop/`），与 `tui/` 平级；
+  并在 `tests/test_layering.py` 里为它补一个与 `test_tui_only_depends_on_core_contract`
+  同构的检查（允许依赖 core 契约层 + 它需要的第三方包，如 `fastapi`、`PySide6`），
+  同时确认 `test_core_never_imports_tui` 的命名已涵盖新界面包（core 不得依赖任何界面）。
 - 会话状态由 `ChatSession` 持有；多个用户/窗口请各自创建 session，不要共享单例。
 
 ## 6. 检查清单
@@ -147,5 +149,5 @@ class AgentThread(QThread):
 - [ ] 取消按钮调用 `Worker.cancel()` / `task.cancel()`，不直接杀进程
 - [ ] 启动失败（配置错误）给出可操作提示
 - [ ] 退出时 `await runtime.aclose()`
-- [ ] 不出现 `requests` / `open()` / `xagent.infrastructure` 的界面层 import
+- [ ] 不出现 `requests` / `open()` / `xagent.core.infrastructure` 的界面层 import
 - [ ] 新增第三方依赖已写入 `pyproject.toml` 与分层测试白名单

@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from xagent.domain.errors import ConfigurationError
-from xagent.infrastructure.config import find_config_file, load_config
+from xagent.core.domain.errors import ConfigurationError
+from xagent.core.infrastructure.config import find_config_file, load_config
 
 INI = """
 [llm]
@@ -123,7 +123,7 @@ def test_base_url_scheme_required(tmp_path: Path) -> None:
 
 
 def test_find_config_file_reports_searched_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from xagent.infrastructure import config as config_module
+    from xagent.core.infrastructure import config as config_module
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(config_module, "_project_config_path", lambda: tmp_path / "project" / "config.ini")

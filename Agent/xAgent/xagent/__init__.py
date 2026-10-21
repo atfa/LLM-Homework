@@ -1,18 +1,14 @@
 """xAgent：分层可扩展的本地工具调用 Agent。
 
-分层（依赖只能由外向内）：
+顶层只有两个可替换边界：
 
-    interfaces (TUI / CLI / 未来的 Web、Desktop)
+    core（Agent 全部核心，与界面无关）
+        domain / ports / application / infrastructure / composition
         ↓
-    composition (依赖装配)
-        ↓
-    application (用例编排：AgentService)
-        ↓
-    ports (抽象协议) ← infrastructure (实现)
-        ↓
-    domain (纯业务模型，零 I/O)
+    tui（Textual 界面，只消费 AgentRuntime 与事件流）
 
-具体见仓库根目录 ARCHITECTURE.md。
+新增 Web / Desktop 前端时，只新增界面层包（如 ``xagent.web``），
+core 一行都不需要改。具体见仓库根目录 ARCHITECTURE.md。
 """
 
 from __future__ import annotations

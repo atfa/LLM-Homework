@@ -7,9 +7,9 @@ from textual.app import ComposeResult
 from textual.containers import VerticalScroll
 from textual.widgets import Static
 
-from ....application.runtime import RuntimeInfo
-from ....application.session import ChatSession
-from ....application.settings import AgentSettings
+from ...core.application.runtime import RuntimeInfo
+from ...core.application.session import ChatSession
+from ...core.application.settings import AgentSettings
 
 
 def _shorten(text: str, limit: int) -> str:

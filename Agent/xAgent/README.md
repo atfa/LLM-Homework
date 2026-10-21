@@ -10,16 +10,16 @@
 
 | Practice02（单文件脚本） | xAgent |
 | --- | --- |
-| 配置、工具、HTTP、`print`、输入循环混在一个文件 | 按 domain / ports / application / infrastructure / interfaces 分层 |
-| UI 只能是终端 `print` | Textual TUI + CLI 两个消费者，共享同一 core |
+| 配置、工具、HTTP、`print`、输入循环混在一个文件 | 顶层 `core` + `tui` 两个包；core 内部再按 domain / ports / application / infrastructure 分层 |
+| UI 只能是终端 `print` | Textual TUI 消费事件流；Web / Desktop 照 `tui/` 参考实现新增即可 |
 | 工具循环 `while True`，可能无限调用 | `max_iterations` 上限 + 可取消 |
-| 工具逻辑与 `os` / 全局变量耦合 | 工具实现位于基础设施层，通过 `ToolRegistry` 端口注入 |
-| 无测试 | 66 项测试：领域、沙箱、工具、循环、SSE、配置、分层约束、TUI 无头 |
+| 工具逻辑与 `os` / 全局变量耦合 | 工具按领域拆分子包（`date_time/`、`file_ops/`），通过 `ToolRegistry` 端口注入 |
+| 无测试 | 68 项测试：领域、沙箱、工具、循环、SSE、配置、分层约束、TUI 无头 |
 | 无法替换模型客户端 | `LLMClient` 端口，OpenAI 兼容实现可替换 |
 
 ## 亮点
 
-- **core 零 UI 依赖**：`AgentService` 只产出 `AgentEvent` 事件流，TUI / CLI / 未来 Web 都只是消费者。
+- **core 零 UI 依赖**：`AgentService` 只产出 `AgentEvent` 事件流，`tui/` 只是消费者之一；新增 Web / Desktop 前端时 core 一行不改。
 - **依赖倒置**：应用层只面向 `LLMClient`、`ToolRegistry` 两个 Protocol 编程。
 - **流式体验**：Markdown 增量渲染（80ms 节流）、工具调用卡片、状态栏、侧栏、自动滚动。
 - **可中断**：`Esc` 取消当前轮；未完成的轮次不会写入历史。
@@ -44,11 +44,9 @@ cp config.ini.example config.ini     # 填写 base_url / model / api_key
 其他入口：
 
 ```bash
-.venv/bin/python main.py --cli                    # 命令行交互
-.venv/bin/python main.py --cli -p "看看当前目录"   # 单轮，适合脚本/CI
 .venv/bin/python main.py --list-tools             # 只列工具，不需要 API Key
 .venv/bin/python -m xagent                        # 等价于 main.py
-xagent / xagent-cli                               # pip install -e . 后的命令
+xagent                                            # pip install -e . 后的命令
 ```
 
 配置也可完全走环境变量：`XAGENT_BASE_URL`、`XAGENT_MODEL`、`XAGENT_API_KEY`、
@@ -97,33 +95,40 @@ Agent/xAgent/
 ├── config.ini.example
 ├── xagent/
 │   ├── __main__.py             # python -m xagent
-│   ├── entrypoint.py           # 参数解析，选择 TUI / CLI
-│   ├── composition.py          # 组合根：唯一装配具体实现的地方
-│   ├── domain/                 # 纯领域模型（零 I/O、零第三方依赖）
-│   │   ├── messages.py         #   ChatMessage / Role / Turn
-│   │   ├── tools.py            #   ToolDefinition / ToolCall / ToolOutcome
-│   │   ├── events.py           #   模型流事件（TextDelta / ToolCallDelta …）
-│   │   ├── accumulator.py      #   把分块 tool_calls 合并成完整调用
-│   │   ├── conversation.py     #   只保留最终问答的历史
-│   │   └── errors.py
-│   ├── ports/                  # 抽象协议（依赖倒置）
-│   │   ├── llm.py              #   LLMClient.stream_chat(...)
-│   │   └── tools.py            #   ToolRegistry.definitions() / invoke()
-│   ├── application/            # 用例编排
-│   │   ├── service.py          #   AgentService：模型 ⇄ 工具循环
-│   │   ├── events.py           #   UI 稳定契约（AgentEvent）
-│   │   ├── session.py          #   ChatSession
-│   │   ├── settings.py         #   AgentSettings（system prompt / 上限）
-│   │   └── runtime.py          #   AgentRuntime + RuntimeInfo
-│   ├── infrastructure/         # 端口实现
-│   │   ├── config.py           #   ini + 环境变量
-│   │   ├── llm/openai_compatible.py  # SSE 解析 + 线程桥
-│   │   └── tools/              #   Sandbox + 12 个工具 + 注册表
-│   └── interfaces/             # UI 适配器（只依赖 core）
+│   ├── entrypoint.py           # 参数解析，启动 TUI（唯一同时接触 core 与界面层的地方）
+│   ├── core/                   # Agent 全部核心，与任何界面无关
+│   │   ├── composition.py      #   组合根：唯一装配具体实现的地方
+│   │   ├── domain/             #   纯领域模型（零 I/O、零第三方依赖）
+│   │   │   ├── messages.py     #     ChatMessage / Role / Turn
+│   │   │   ├── tools.py        #     ToolDefinition / ToolCall / ToolOutcome
+│   │   │   ├── events.py       #     模型流事件（TextDelta / ToolCallDelta …）
+│   │   │   ├── accumulator.py  #     把分块 tool_calls 合并成完整调用
+│   │   │   ├── conversation.py #     只保留最终问答的历史
+│   │   │   └── errors.py
+│   │   ├── ports/              #   抽象协议（依赖倒置）
+│   │   │   ├── llm.py          #     LLMClient.stream_chat(...)
+│   │   │   └── tools.py        #     ToolRegistry.definitions() / invoke()
+│   │   ├── application/        #   用例编排
+│   │   │   ├── service.py      #     AgentService：模型 ⇄ 工具循环
+│   │   │   ├── events.py       #     UI 稳定契约（AgentEvent）
+│   │   │   ├── session.py      #     ChatSession
+│   │   │   ├── settings.py     #     AgentSettings（system prompt / 上限）
+│   │   │   └── runtime.py      #     AgentRuntime + RuntimeInfo
+│   │   └── infrastructure/     #   端口实现
+│   │       ├── config.py       #     ini + 环境变量
+│   │       ├── llm/            #     SSE 解析 + 线程桥
+│   │       │   └── openai_compatible.py
+│   │       └── tools/          #     注册表 + 按领域拆分的工具子包
+│   │           ├── catalog.py  #       装配 12 个工具
+│   │           ├── registry.py #       参数解析、线程执行、错误归一化
+│   │           ├── date_time/  #       getDate / isLeapYear
+│   │           └── file_ops/   #       Sandbox + 10 个文件工具
+│   └── tui/                    # Textual 界面（core 的一个消费者，可整体替换）
+│       ├── app.py              #   App / 事件渲染 / 斜杠命令
 │       ├── formatting.py       #   跨 UI 复用的展示格式化
-│       ├── tui/                #   Textual App / widgets / CSS / 帮助
-│       └── cli/                #   无界面参考实现
-├── tests/                      # 66 项测试，含分层约束与 TUI 冒烟
+│       ├── help_screen.py      #   帮助弹窗
+│       └── widgets/            #   ChatView / Sidebar / StatusBar
+├── tests/                      # 68 项测试，含分层约束与 TUI 冒烟
 ├── tools/                      # 开发工具：自动演示 + 预览截图
 └── docs/
     ├── tui-preview.png
@@ -134,20 +139,18 @@ Agent/xAgent/
 
 ```mermaid
 flowchart TB
-    subgraph interfaces["interfaces（TUI / CLI / 未来 Web、Desktop）"]
-        TUI["Textual TUI"]
-        CLI["CLI"]
-        WEB["Web / Desktop"]
+    subgraph ui["界面层（可整体替换）"]
+        TUI["tui · Textual"]
+        FUTURE["未来的 web / desktop 包"]
     end
-    COMP["composition 组合根"]
-    APP["application · AgentService"]
-    PORTS["ports · LLMClient / ToolRegistry"]
-    DOM["domain · 消息 / 工具 / 事件 / 会话"]
-    INFRA["infrastructure · OpenAI 客户端 / 12 工具 / 配置"]
+    COMP["core.composition 组合根"]
+    APP["core.application · AgentService"]
+    PORTS["core.ports · LLMClient / ToolRegistry"]
+    DOM["core.domain · 消息 / 工具 / 事件 / 会话"]
+    INFRA["core.infrastructure · OpenAI 客户端 / 12 工具 / 配置"]
 
     TUI --> APP
-    CLI --> APP
-    WEB --> APP
+    FUTURE --> APP
     COMP --> APP
     COMP --> INFRA
     APP --> PORTS
@@ -158,12 +161,12 @@ flowchart TB
 
 | 层 | 可以依赖 | 职责 | 禁止 |
 | --- | --- | --- | --- |
-| `domain` | 仅标准库 | 数据模型、不变量、纯算法 | 任何 I/O、网络、UI |
-| `ports` | `domain` | Protocol 契约 | 具体实现 |
-| `application` | `domain`、`ports` | 用例编排、事件流 | 具体 SDK / UI |
-| `infrastructure` | `domain`、`ports` | 网络、文件、配置适配 | 引用 UI |
-| `interfaces` | `application`、`domain`、`ports`、本层 | 渲染与输入 | 直接调 HTTP / 文件工具 |
-| `composition` / `entrypoint` | 任意（除 UI 反向依赖） | 装配与启动 | 承载业务逻辑 |
+| `core/domain` | 仅标准库 | 数据模型、不变量、纯算法 | 任何 I/O、网络、UI |
+| `core/ports` | `core/domain` | Protocol 契约 | 具体实现 |
+| `core/application` | `core/domain`、`core/ports` | 用例编排、事件流 | 具体 SDK / UI |
+| `core/infrastructure` | `core/domain`、`core/ports` | 网络、文件、配置适配 | 引用 UI |
+| `tui`（及未来的 web / desktop） | `core/application`、`core/domain`、`core/ports` | 渲染与输入 | import `core/infrastructure`、直接调 HTTP / 文件工具 |
+| `core/composition` / `entrypoint` | 任意（除 core 反向依赖界面） | 装配与启动 | 承载业务逻辑 |
 
 > 规则不是口号：`tests/test_layering.py` 用 AST 扫描所有 import，违反即失败。
 
@@ -171,7 +174,7 @@ flowchart TB
 
 ## 事件契约（UI 的唯一入口）
 
-TUI 不接触 SSE、HTTP 或工具实现，只消费：
+TUI 不接触 SSE、HTTP 或工具实现，只消费（`tui/` 是参考实现，Web / Desktop 同理）：
 
 | 事件 | 时机 | UI 典型动作 |
 | --- | --- | --- |
@@ -237,22 +240,22 @@ max_tool_output_chars = 30000  # 工具结果回传模型的上限
 
 **新增工具**
 
-1. 在 `xagent/infrastructure/tools/` 下写 `ToolDefinition` + 同步 handler；
+1. 在 `xagent/core/infrastructure/tools/` 下按领域建子包（参考 `date_time/`、`file_ops/`），写 `ToolDefinition` + 同步 handler；
 2. 在 `catalog.build_tool_registry()` 中注册；
-3. 需要沙箱时注入 `Sandbox`，不要自己拼接路径。
+3. 需要沙箱时注入 `Sandbox`（`file_ops/sandbox.py`），不要自己拼接路径。
 
 **新增模型厂商**
 
-实现 `xagent.ports.llm.LLMClient`（`async def stream_chat(...)` 异步生成器），
-在 `composition.build_runtime()` 中替换实现即可；应用层与所有 UI 不需要改。
+实现 `xagent.core.ports.llm.LLMClient`（`async def stream_chat(...)` 异步生成器），
+在 `core.composition.build_runtime()` 中替换实现即可；应用层与所有界面不需要改。
 
-> `composition.py` 是唯一允许同时 import `application` 与 `infrastructure` 的地方。
+> `core/composition.py` 是唯一允许同时 import `core.application` 与 `core.infrastructure` 的地方。
 > 新增依赖时先问：这个 import 属于哪一层？
 
 ## 测试与质量
 
 ```bash
-.venv/bin/python -m pytest             # 66 passed
+.venv/bin/python -m pytest             # 68 passed
 .venv/bin/python -m pyright            # 0 errors（使用项目 .venv）
 ```
 
@@ -264,7 +267,7 @@ max_tool_output_chars = 30000  # 工具结果回传模型的上限
 - `test_agent_service.py`：工具循环、历史只存最终问答、最大轮数、流失败、取消、截断
 - `test_sse_decoder.py`：SSE 分块、`[DONE]`、错误载荷、畸形数据
 - `test_config.py`：ini / 环境变量优先级、缺失项与非法值提示
-- `test_layering.py`：AST 依赖方向断言 + 领域层纯净性
+- `test_layering.py`：AST 依赖方向断言（tui 只依赖 core 契约、core 不依赖 tui、core 内部由外向内）+ 领域层纯净性
 - `test_tui.py`：无头 TUI 渲染、工具卡片、Esc 取消、帮助、斜杠命令、新会话
 
 开发辅助（需要 `pyte` + `Pillow`）：
@@ -279,16 +282,16 @@ max_tool_output_chars = 30000  # 工具结果回传模型的上限
 
 | Practice02 | xAgent |
 | --- | --- |
-| 模块级 `cfg[...]` 读取 | `infrastructure/config.py` → `AppConfig` |
-| `tools = [...]` 大列表 | 各工具模块的 `ToolDefinition` |
-| `resolve_path()` / `WORKSPACE` | `infrastructure/tools/sandbox.py` → `Sandbox` |
-| `tool_*` 函数 | `file_tools.py` / `datetime_tools.py` |
+| 模块级 `cfg[...]` 读取 | `core/infrastructure/config.py` → `AppConfig` |
+| `tools = [...]` 大列表 | 各工具子包（`date_time/`、`file_ops/`）的 `ToolDefinition` |
+| `resolve_path()` / `WORKSPACE` | `core/infrastructure/tools/file_ops/sandbox.py` → `Sandbox` |
+| `tool_*` 函数 | `file_ops/file_tools.py` / `date_time/datetime_tools.py` |
 | `run_tool()` | `ToolRegistryImpl.invoke()`（异步、线程池、错误归一化） |
 | `chat_stream()` | `OpenAICompatibleClient` + `ChatCompletionDecoder` |
 | `while True` 工具循环 | `AgentService.run_turn()` + `max_iterations` |
-| `history` | `domain/conversation.py` → `Conversation` |
-| `print()` 输出 | `AgentEvent` → TUI / CLI 渲染 |
-| `input()` 主循环 | `interfaces/tui/app.py` / `interfaces/cli/main.py` |
+| `history` | `core/domain/conversation.py` → `Conversation` |
+| `print()` 输出 | `AgentEvent` → 界面层渲染 |
+| `input()` 主循环 | `tui/app.py` |
 
 ## 已知限制
 
@@ -296,7 +299,7 @@ max_tool_output_chars = 30000  # 工具结果回传模型的上限
 - 工具串行执行；并行调用需在应用层增加调度与事件序号。
 - 未统计 token 用量；长对话不会自动裁剪历史。
 - 推理类模型（如 `deepseek-reasoner`）的 `reasoning_content` 暂不展示，只渲染最终 `content`。
-- `--list-tools` 不需要 API Key，但 TUI / CLI 启动需要有效配置。
+- `--list-tools` 不需要 API Key，但 TUI 启动需要有效配置。
 - `getDate` 依赖系统命令；无 `date` 时回退到 Python 本地时间。
 - 仓库根目录的 `pyrightconfig.json` 仅用于让编辑器使用 `Agent/xAgent/.venv`，
   如影响其它项目可按需删除或调整 `include`。

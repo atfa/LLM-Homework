@@ -9,10 +9,10 @@ from pathlib import Path
 from textual.widget import Widget
 
 from tests.fakes import SlowLLM, make_runtime
-from xagent.domain.events import StreamCompleted, TextDelta, ToolCallDelta
-from xagent.interfaces.tui.app import XAgentApp
-from xagent.interfaces.tui.help_screen import HelpScreen
-from xagent.interfaces.tui.widgets import AssistantMessage, NoticeMessage, ToolActivity, UserMessage
+from xagent.core.domain.events import StreamCompleted, TextDelta, ToolCallDelta
+from xagent.tui.app import XAgentApp
+from xagent.tui.help_screen import HelpScreen
+from xagent.tui.widgets import AssistantMessage, NoticeMessage, ToolActivity, UserMessage
 
 
 async def wait_until(predicate: Callable[[], bool], timeout: float = 5.0) -> None:

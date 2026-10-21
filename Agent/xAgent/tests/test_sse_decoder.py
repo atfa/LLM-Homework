@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 
-from xagent.domain import ToolCallAccumulator
-from xagent.domain.events import StreamCompleted, StreamFailed, TextDelta, ToolCallDelta
-from xagent.infrastructure.llm.openai_compatible import ChatCompletionDecoder
+from xagent.core.domain import ToolCallAccumulator
+from xagent.core.domain.events import StreamCompleted, StreamFailed, TextDelta, ToolCallDelta
+from xagent.core.infrastructure.llm.openai_compatible import ChatCompletionDecoder
 
 
 def data(payload: object) -> str:

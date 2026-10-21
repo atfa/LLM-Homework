@@ -6,7 +6,7 @@ import dataclasses
 
 import pytest
 
-from xagent.domain import (
+from xagent.core.domain import (
     ChatMessage,
     Conversation,
     Role,

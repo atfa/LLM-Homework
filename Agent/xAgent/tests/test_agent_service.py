@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from tests.fakes import FakeLLM, SlowLLM, make_runtime
-from xagent.application.events import (
+from xagent.core.application.events import (
     AssistantTextDelta,
     IterationCompleted,
     ToolCallFinished,
@@ -17,11 +17,11 @@ from xagent.application.events import (
     TurnFailed,
     TurnStarted,
 )
-from xagent.application.service import AgentService
-from xagent.domain.events import StreamCompleted, StreamFailed, TextDelta, ToolCallDelta
-from xagent.domain.messages import Role
-from xagent.domain.tools import ToolCall
-from xagent.infrastructure.tools.catalog import build_tool_registry
+from xagent.core.application.service import AgentService
+from xagent.core.domain.events import StreamCompleted, StreamFailed, TextDelta, ToolCallDelta
+from xagent.core.domain.messages import Role
+from xagent.core.domain.tools import ToolCall
+from xagent.core.infrastructure.tools.catalog import build_tool_registry
 
 
 def tool_call_chunks(index: int, call_id: str, name: str, arguments: str) -> list[object]:

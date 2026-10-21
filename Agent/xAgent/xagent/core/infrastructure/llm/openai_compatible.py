@@ -99,7 +99,7 @@ _END = object()
 
 
 class OpenAICompatibleClient:
-    """实现 :class:`xagent.ports.llm.LLMClient`。"""
+    """实现 :class:`xagent.core.ports.llm.LLMClient`。"""
 
     def __init__(
         self,

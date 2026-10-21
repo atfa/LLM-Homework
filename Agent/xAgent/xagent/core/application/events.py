@@ -1,6 +1,6 @@
 """应用层对外事件：UI 只需订阅这些事件即可渲染整个对话过程。
 
-与 :mod:`xagent.domain.events` 的区别：
+与 :mod:`xagent.core.domain.events` 的区别：
 - 领域事件描述「模型流的一个分片」；
 - 应用事件描述「一轮 Agent 执行中发生了什么」，是 UI 的稳定契约。
 

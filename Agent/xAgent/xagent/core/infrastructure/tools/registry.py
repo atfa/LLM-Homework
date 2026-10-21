@@ -20,7 +20,7 @@ class _Entry:
 
 
 class ToolRegistryImpl:
-    """实现 :class:`xagent.ports.tools.ToolRegistry`。"""
+    """实现 :class:`xagent.core.ports.tools.ToolRegistry`。"""
 
     def __init__(self) -> None:
         self._entries: dict[str, _Entry] = {}

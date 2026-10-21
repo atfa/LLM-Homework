@@ -6,14 +6,14 @@ import asyncio
 from collections.abc import AsyncIterator, Sequence
 from pathlib import Path
 
-from xagent.application.runtime import AgentRuntime, RuntimeInfo
-from xagent.application.service import AgentService
-from xagent.application.session import ChatSession
-from xagent.application.settings import AgentSettings
-from xagent.domain.events import LLMStreamEvent, StreamCompleted, TextDelta
-from xagent.domain.messages import ChatMessage
-from xagent.domain.tools import ToolDefinition
-from xagent.infrastructure.tools.catalog import build_tool_registry
+from xagent.core.application.runtime import AgentRuntime, RuntimeInfo
+from xagent.core.application.service import AgentService
+from xagent.core.application.session import ChatSession
+from xagent.core.application.settings import AgentSettings
+from xagent.core.domain.events import LLMStreamEvent, StreamCompleted, TextDelta
+from xagent.core.domain.messages import ChatMessage
+from xagent.core.domain.tools import ToolDefinition
+from xagent.core.infrastructure.tools.catalog import build_tool_registry
 
 EchoScript = Sequence[LLMStreamEvent]
 

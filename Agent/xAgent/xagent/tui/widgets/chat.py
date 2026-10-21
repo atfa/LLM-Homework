@@ -10,8 +10,8 @@ from textual.app import ComposeResult
 from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Collapsible, Markdown, Static
 
-from ....domain.tools import ToolCall, ToolOutcome
-from ...formatting import pretty_arguments, summarize_arguments, truncate
+from ...core.domain.tools import ToolCall, ToolOutcome
+from ..formatting import pretty_arguments, summarize_arguments, truncate
 
 NoticeLevel = Literal["info", "success", "warning", "error"]
 

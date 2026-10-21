@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from xagent.domain.tools import ToolCall, ToolOutcome
-from xagent.infrastructure.tools.catalog import build_tool_registry
-from xagent.infrastructure.tools.registry import ToolRegistryImpl
+from xagent.core.domain.tools import ToolCall, ToolOutcome
+from xagent.core.infrastructure.tools.catalog import build_tool_registry
+from xagent.core.infrastructure.tools.registry import ToolRegistryImpl
 
 
 def invoke(registry: ToolRegistryImpl, name: str, **arguments: object) -> ToolOutcome:

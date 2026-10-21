@@ -9,9 +9,9 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
-from ...domain.errors import ToolError
-from ...domain.tools import ToolDefinition
-from ...ports.tools import ToolHandler
+from ....domain.errors import ToolError
+from ....domain.tools import ToolDefinition
+from ....ports.tools import ToolHandler
 from .sandbox import MAX_LIST_ENTRIES, MAX_READ_BYTES, Sandbox, decode_text, format_size, read_head
 
 # ---------------------------------------------------------------------------

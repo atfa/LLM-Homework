@@ -1,7 +1,7 @@
 """领域层：纯业务模型与规则。
 
 依赖规则：只允许使用 Python 标准库，禁止导入 ports / application /
-infrastructure / interfaces，也禁止任何网络、文件、终端 I/O。
+infrastructure / tui，也禁止任何网络、文件、终端 I/O。
 """
 
 from .accumulator import ToolCallAccumulator

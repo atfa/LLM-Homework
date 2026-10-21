@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from xagent.domain.errors import SandboxViolation, ToolError
-from xagent.infrastructure.tools.sandbox import Sandbox, decode_text, format_size
+from xagent.core.domain.errors import SandboxViolation, ToolError
+from xagent.core.infrastructure.tools.file_ops.sandbox import Sandbox, decode_text, format_size
 
 
 def test_sandbox_resolves_inside_paths(tmp_path: Path) -> None:

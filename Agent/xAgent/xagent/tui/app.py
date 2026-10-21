@@ -11,7 +11,7 @@ from textual.containers import Horizontal
 from textual.widgets import Footer, Header, Input
 from textual.worker import Worker
 
-from ...application.events import (
+from ..core.application.events import (
     AgentEvent,
     AssistantTextDelta,
     IterationCompleted,
@@ -21,7 +21,7 @@ from ...application.events import (
     TurnCompleted,
     TurnFailed,
 )
-from ...application.runtime import AgentRuntime
+from ..core.application.runtime import AgentRuntime
 from .help_screen import HelpScreen
 from .widgets import ChatView, Sidebar, StatusBar
 

@@ -10,10 +10,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from tests.fakes import make_runtime  # noqa: E402
-from xagent.application.events import TurnCompleted  # noqa: E402
-from xagent.domain.events import StreamCompleted, TextDelta, ToolCallDelta  # noqa: E402
-from xagent.interfaces.tui.app import XAgentApp  # noqa: E402
-from xagent.interfaces.tui.widgets import ToolActivity  # noqa: E402
+from xagent.core.application.events import TurnCompleted  # noqa: E402
+from xagent.core.domain.events import StreamCompleted, TextDelta, ToolCallDelta  # noqa: E402
+from xagent.tui.app import XAgentApp  # noqa: E402
+from xagent.tui.widgets import ToolActivity  # noqa: E402
 
 SCRIPTS = [
     [
@@ -26,9 +26,9 @@ SCRIPTS = [
         TextDelta("当前工作目录就是 `Agent/xAgent`。\n\n"),
         TextDelta("**建议阅读顺序**\n\n"),
         TextDelta("1. `README.md` —— 先跑起来\n"),
-        TextDelta("2. `xagent/domain/` —— 数据模型\n"),
-        TextDelta("3. `xagent/application/service.py` —— 工具调用循环\n"),
-        TextDelta("4. `xagent/interfaces/tui/` —— Textual 界面\n\n"),
+        TextDelta("2. `xagent/core/domain/` —— 数据模型\n"),
+        TextDelta("3. `xagent/core/application/service.py` —— 工具调用循环\n"),
+        TextDelta("4. `xagent/tui/` —— Textual 界面\n\n"),
         TextDelta("> 依赖只能由外向内，`domain` 不 import 任何 I/O。"),
         StreamCompleted("stop"),
     ],

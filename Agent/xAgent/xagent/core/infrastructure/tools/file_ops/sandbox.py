@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from ...domain.errors import SandboxViolation, ToolError
+from ....domain.errors import SandboxViolation, ToolError
 
 MAX_READ_BYTES = 256 * 1024
 """单次读取上限，避免把巨大文件塞进模型上下文。"""

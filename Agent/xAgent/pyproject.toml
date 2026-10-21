@@ -23,13 +23,12 @@ dev = [
 
 [project.scripts]
 xagent = "xagent.entrypoint:main"
-xagent-cli = "xagent.entrypoint:cli_main"
 
 [tool.setuptools.packages.find]
 include = ["xagent*"]
 
 [tool.setuptools.package-data]
-"xagent.interfaces.tui" = ["*.tcss"]
+"xagent.tui" = ["*.tcss"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

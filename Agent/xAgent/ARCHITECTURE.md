@@ -12,10 +12,10 @@
 
 | 目标 | 落地方式 |
 | --- | --- |
-| core 与 UI 分离 | `application.AgentService` 只产出事件，不 import 任何 UI |
-| 界面可替换 | TUI、CLI 都是 `AgentEvent` 的消费者；契约见 `application/events.py` |
-| 模型厂商可替换 | `ports.llm.LLMClient` Protocol + 基础设施实现 |
-| 工具可插拔 | `ports.tools.ToolRegistry` + `infrastructure/tools/catalog.py` |
+| core 与 UI 分离 | `core.application.AgentService` 只产出事件，不 import 任何 UI |
+| 界面可替换 | 顶层只分 `core` + 界面包两个目录；TUI 是 `AgentEvent` 的消费者，契约见 `core.application.events` |
+| 模型厂商可替换 | `core.ports.llm.LLMClient` Protocol + 基础设施实现 |
+| 工具可插拔 | `core.ports.tools.ToolRegistry` + `infrastructure/tools/catalog.py` |
 | 可测试 | 领域纯函数、Fake LLM、Fake Registry、无头 TUI |
 | 安全 | 路径沙箱、破坏性操作确认、轮数上限、输出截断 |
 | 架构可持续 | `tests/test_layering.py` 用 AST 强制依赖方向 |
@@ -26,23 +26,24 @@
 
 ## 2. 分层
 
+顶层只有两个目录：`core/`（Agent 全部核心）与 `tui/`（界面）。
+学生开发 Web / Desktop 前端时，新增的界面包与 `tui/` 平级，core 不动。
+
 ```mermaid
 flowchart TB
-    subgraph outer["外层（可替换）"]
+    subgraph outer["界面层（可整体替换）"]
         direction LR
-        TUI["interfaces/tui"]
-        CLI["interfaces/cli"]
-        FUTURE["interfaces/web · desktop（未来）"]
+        TUI["tui"]
+        FUTURE["web · desktop（未来，与 tui 平级）"]
     end
 
-    COMP["composition.py\n（组合根）"]
-    APP["application\nAgentService / Session / Events"]
-    PORTS["ports\nLLMClient / ToolRegistry"]
-    DOM["domain\nMessages / Tools / Events / Conversation"]
-    INFRA["infrastructure\nConfig / OpenAI Client / Sandbox + Tools"]
+    COMP["core.composition\n（组合根）"]
+    APP["core.application\nAgentService / Session / Events"]
+    PORTS["core.ports\nLLMClient / ToolRegistry"]
+    DOM["core.domain\nMessages / Tools / Events / Conversation"]
+    INFRA["core.infrastructure\nConfig / OpenAI Client / Sandbox + Tools"]
 
     TUI --> APP
-    CLI --> APP
     FUTURE --> APP
     COMP --> APP
     COMP --> INFRA
@@ -55,10 +56,13 @@ flowchart TB
 
 ### 依赖规则
 
-- **向内**：`interfaces → application → ports → domain`，`infrastructure → ports → domain`。
-- **横向禁止**：`application` 不得 import `infrastructure`；`domain` 不得 import 任何外层。
-- **跨层装配**：只有 `composition.py` 与 `entrypoint.py` 可以同时看到 application 与 infrastructure。
-- **UI 不碰实现**：TUI 不 import `requests`、不 import 任何 `xagent.infrastructure.*`。
+- **界面 → core**：界面包只能 import `core.application`、`core.domain`、`core.ports`；
+  不得 import `core.infrastructure`、`core.composition`。
+- **core 内部向内**：`core.application → core.ports → core.domain`，
+  `core.infrastructure → core.ports → core.domain`。
+- **core 不得反向依赖界面**：core 任何模块 import 界面包即为架构违规。
+- **跨层装配**：只有 `core.composition` 与 `entrypoint.py` 可以同时看到 application 与 infrastructure；
+  `entrypoint.py` 是唯一同时 import core 与界面包的地方。
 
 `tests/test_layering.py` 会扫描每个文件的 `import` / `from ... import`，包括相对导入，
 然后按层检查；违反时 CI 直接失败。
@@ -67,12 +71,13 @@ flowchart TB
 
 | 层 | 包 | 可以依赖 | 主要内容 |
 | --- | --- | --- | --- |
-| 领域 | `xagent.domain` | 标准库 | 不可变数据模型、不变量、纯算法 |
-| 端口 | `xagent.ports` | `domain` | `LLMClient`、`ToolRegistry` 两个 Protocol |
-| 应用 | `xagent.application` | `domain`、`ports` | 工具循环、会话、事件、运行参数 |
-| 基础设施 | `xagent.infrastructure` | `domain`、`ports` | 配置、SSE 客户端、沙箱、12 个工具 |
-| 接口 | `xagent.interfaces` | `application`、`domain`、`ports`、本层 | Textual TUI、CLI、展示格式化 |
-| 组合根 | `xagent.composition` | 上述全部 | 依赖装配，决定「用哪个实现」 |
+| 领域 | `xagent.core.domain` | 标准库 | 不可变数据模型、不变量、纯算法 |
+| 端口 | `xagent.core.ports` | `core.domain` | `LLMClient`、`ToolRegistry` 两个 Protocol |
+| 应用 | `xagent.core.application` | `core.domain`、`core.ports` | 工具循环、会话、事件、运行参数 |
+| 基础设施 | `xagent.core.infrastructure` | `core.domain`、`core.ports` | 配置、SSE 客户端、沙箱、12 个工具 |
+| 界面 | `xagent.tui`（未来 `xagent.web` 等） | `core.application`、`core.domain`、`core.ports`、本层 | Textual TUI、展示格式化 |
+| 组合根 | `xagent.core.composition` | core 内部全部 | 依赖装配，决定「用哪个实现」 |
+| 启动 | `xagent.entrypoint` | core + 界面包 | 参数解析、启动 TUI |
 
 ---
 
@@ -81,7 +86,7 @@ flowchart TB
 ```mermaid
 sequenceDiagram
     autonumber
-    participant UI as TUI / CLI
+    participant UI as 界面（tui / 未来的 web、desktop）
     participant S as AgentService
     participant L as LLMClient
     participant T as ToolRegistry
@@ -128,7 +133,7 @@ sequenceDiagram
 
 ## 4. 事件模型
 
-### 4.1 领域事件（`domain.events`）
+### 4.1 领域事件（`core.domain.events`）
 
 模型流的最小分片，与厂商无关：
 
@@ -142,7 +147,7 @@ sequenceDiagram
 `ToolCallAccumulator` 负责按 `index` 合并分块；同时兼容不返回 `id` 的厂商
 （生成 `call_{index}` 兜底）。
 
-### 4.2 应用事件（`application.events`）
+### 4.2 应用事件（`core.application.events`）
 
 UI 的稳定契约：
 
@@ -235,7 +240,7 @@ def count_lines(sandbox: Sandbox, args: Mapping[str, object]) -> str:
     target = sandbox.resolve(args.get("path"))
     return f"{len(target.read_text(encoding='utf-8').splitlines())} 行"
 
-# 3) 在 file_tools() 的 _HANDLERS 中注册
+# 3) 在 file_ops/file_tools.py 的 _HANDLERS 中注册（新领域则新建子包并加入 catalog）
 ```
 
 ### 8.2 新增模型厂商
@@ -252,7 +257,7 @@ class MyProviderClient:
     async def aclose(self) -> None: ...
 ```
 
-然后在 `composition.build_runtime()` 中替换实现。应用层、TUI、CLI 不需要改。
+然后在 `core.composition.build_runtime()` 中替换实现。应用层与界面层不需要改。
 
 ### 8.3 新增界面
 
@@ -264,7 +269,7 @@ class MyProviderClient:
 
 ### 8.4 样式与主题
 
-`interfaces/tui/app.tcss` 只描述外观。新增主题时优先改 CSS 变量
+`tui/app.tcss` 只描述外观。新增主题时优先改 CSS 变量
 （`$primary` / `$surface` / `$text-muted` …），不要把颜色写进 Python。
 
 ---
@@ -315,7 +320,14 @@ class MyProviderClient:
 
 UI 只能看到 `AgentRuntime` 与事件。要发 HTTP，说明分层被破坏了。
 
-**Q: 为什么 `composition.py` 这么短却重要？**
+**Q: 为什么 `core/composition.py` 这么短却重要？**
 
 它是唯一知道「哪个实现配哪个端口」的地方。换模型、换工具集、换配置来源，
-都只改这里，core 与 UI 不动。
+都只改这里，core 与界面层不动。
+
+**Q: 为什么顶层只有 core 和 tui？学生要做 Web / Desktop 前端怎么办？**
+
+`tui/` 就是「界面如何消费 core」的完整参考实现。新增 `xagent/web/`（或 `desktop/`）
+包，照 `tui/` 的三步走：拿 `AgentRuntime`、`async for event`、渲染事件。
+core 的分层（domain / ports / application / infrastructure）保留在 `core/` 内部，
+保证依赖方向仍然可教、可查（`tests/test_layering.py`）。

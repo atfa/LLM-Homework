@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import __version__
+from .. import __version__
 from .application.runtime import AgentRuntime, RuntimeInfo
 from .application.service import AgentService
 from .application.session import ChatSession
