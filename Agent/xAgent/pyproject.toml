@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xagent"
+version = "0.1.0"
+description = "分层、UI 无关的本地工具调用 Agent，内置 Textual TUI"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31",
+    "textual>=1.0",
+    "rich>=13",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pyte>=0.8",
+    "pillow>=10",
+]
+
+[project.scripts]
+xagent = "xagent.entrypoint:main"
+xagent-cli = "xagent.entrypoint:cli_main"
+
+[tool.setuptools.packages.find]
+include = ["xagent*"]
+
+[tool.setuptools.package-data]
+"xagent.interfaces.tui" = ["*.tcss"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.pyright]
+include = ["xagent", "main.py", "tests"]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

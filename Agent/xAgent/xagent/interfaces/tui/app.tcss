@@ -1,0 +1,189 @@
+/* xAgent TUI 样式：只描述外观，不承载行为 */
+
+Screen {
+    background: $background;
+}
+
+Header {
+    background: $panel;
+    color: $foreground;
+}
+
+#body {
+    height: 1fr;
+}
+
+ChatView {
+    width: 1fr;
+    height: 1fr;
+    padding: 1 2;
+    scrollbar-size: 1 1;
+}
+
+/* ---------- 消息 ---------- */
+.msg {
+    height: auto;
+    margin-bottom: 1;
+}
+
+.msg.user {
+    padding: 0 1;
+    background: $boost;
+    border-left: thick $accent;
+}
+
+.msg.assistant {
+    padding: 0 1;
+    border-left: thick $primary;
+}
+
+.role {
+    text-style: bold;
+    color: $text-muted;
+    height: auto;
+}
+
+AssistantMessage .md {
+    background: transparent;
+    padding: 0;
+    margin: 0;
+}
+
+.welcome {
+    height: auto;
+    padding: 0 1;
+    margin-bottom: 1;
+    border: round $primary;
+    color: $foreground;
+}
+
+/* ---------- 工具卡片 ---------- */
+ToolActivity {
+    height: auto;
+    padding: 0;
+    margin-bottom: 1;
+    background: $surface;
+    border-left: thick $secondary;
+}
+
+ToolActivity.running {
+    border-left: thick $warning;
+}
+
+ToolActivity.ok {
+    border-left: thick $success;
+}
+
+ToolActivity.error {
+    border-left: thick $error;
+}
+
+.tool-body {
+    height: auto;
+    padding: 0 1;
+    color: $foreground;
+}
+
+/* ---------- 提示 ---------- */
+.notice {
+    height: auto;
+    padding: 0 1;
+    margin-bottom: 1;
+    color: $text-muted;
+    border-left: thick $panel;
+}
+
+.notice.success {
+    color: $success;
+    border-left: thick $success;
+}
+
+.notice.warning {
+    color: $warning;
+    border-left: thick $warning;
+}
+
+.notice.error {
+    color: $error;
+    border-left: thick $error;
+}
+
+/* ---------- 侧栏 ---------- */
+#sidebar {
+    width: 38;
+    height: 1fr;
+    padding: 0 1;
+    background: $surface;
+    border-left: solid $panel;
+    scrollbar-size: 1 1;
+}
+
+#sidebar.hidden {
+    display: none;
+}
+
+.section-title {
+    height: auto;
+    margin-top: 1;
+    color: $text-muted;
+    text-style: bold;
+}
+
+.sidebar-body {
+    height: auto;
+    color: $foreground;
+}
+
+.sidebar-hint {
+    height: auto;
+    margin: 1 0;
+    color: $text-muted;
+    text-style: italic;
+}
+
+/* ---------- 输入与状态 ---------- */
+#prompt {
+    height: 3;
+    margin: 0 1;
+    border: round $primary;
+}
+
+#prompt:focus {
+    border: round $accent;
+}
+
+#status {
+    height: 1;
+    padding: 0 1;
+    background: $panel;
+    color: $foreground;
+}
+
+Footer {
+    background: $panel;
+}
+
+/* ---------- 帮助弹窗 ---------- */
+HelpScreen {
+    align: center middle;
+    background: $background 60%;
+}
+
+#help-dialog {
+    width: 82;
+    height: auto;
+    max-height: 90%;
+    padding: 1 2;
+    background: $surface;
+    border: round $primary;
+}
+
+.help-title {
+    height: auto;
+    text-style: bold;
+}
+
+.help-body {
+    height: auto;
+    background: transparent;
+}

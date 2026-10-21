@@ -1,0 +1,153 @@
+"""Textual TUI 无头冒烟测试：渲染、工具卡片、取消、帮助与斜杠命令。"""
+
+from __future__ import annotations
+
+import asyncio
+from collections.abc import Callable
+from pathlib import Path
+
+from textual.widget import Widget
+
+from tests.fakes import SlowLLM, make_runtime
+from xagent.domain.events import StreamCompleted, TextDelta, ToolCallDelta
+from xagent.interfaces.tui.app import XAgentApp
+from xagent.interfaces.tui.help_screen import HelpScreen
+from xagent.interfaces.tui.widgets import AssistantMessage, NoticeMessage, ToolActivity, UserMessage
+
+
+async def wait_until(predicate: Callable[[], bool], timeout: float = 5.0) -> None:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while not predicate():
+        if loop.time() > deadline:
+            raise AssertionError("等待 TUI 状态超时")
+        await asyncio.sleep(0.02)
+
+
+def chat_widgets(tui: XAgentApp, kind: type[Widget]) -> list[Widget]:
+    """直接遍历 ChatView 子节点，避免在测试里依赖 Textual 查询 API。"""
+    return [child for child in tui.chat.children if isinstance(child, kind)]
+
+
+def test_tui_turn_renders_messages(tmp_path: Path) -> None:
+    runtime = make_runtime(
+        tmp_path,
+        [[TextDelta("你好，"), TextDelta("我是 xAgent"), StreamCompleted("stop")]],
+    )
+
+    async def scenario() -> None:
+        tui = XAgentApp(runtime)
+        async with tui.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            tui.prompt_input.value = "你好"
+            await pilot.press("enter")
+            await wait_until(lambda: runtime.session.turn_count == 1)
+            tui.chat.finish_assistant()
+            await pilot.pause()
+
+            assert len(chat_widgets(tui, UserMessage)) == 1
+            assistants = chat_widgets(tui, AssistantMessage)
+            assert len(assistants) == 1
+            assert isinstance(assistants[0], AssistantMessage)
+            assert assistants[0].text == "你好，我是 xAgent"
+            assert tui.status.state == "idle"
+            assert chat_widgets(tui, NoticeMessage) == []
+            assert runtime.session.conversation.history()[-1].content == "你好，我是 xAgent"
+
+    asyncio.run(scenario())
+
+
+def test_tui_renders_tool_activity(tmp_path: Path) -> None:
+    (tmp_path / "hello.txt").write_text("hi", encoding="utf-8")
+    first = [
+        ToolCallDelta(index=0, id="call_1", name="listDir"),
+        ToolCallDelta(index=0, arguments='{"path": "."}'),
+        StreamCompleted("tool_calls"),
+    ]
+    second = [TextDelta("目录里有 hello.txt"), StreamCompleted("stop")]
+    runtime = make_runtime(tmp_path, [first, second])
+
+    async def scenario() -> None:
+        tui = XAgentApp(runtime)
+        async with tui.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            tui.prompt_input.value = "看看目录"
+            await pilot.press("enter")
+            await wait_until(lambda: runtime.session.turn_count == 1)
+            await pilot.pause()
+
+            cards = chat_widgets(tui, ToolActivity)
+            assert len(cards) == 1
+            card = cards[0]
+            assert isinstance(card, ToolActivity)
+            assert card.has_class("ok")
+            assert "listDir" in str(card.title)
+            assert not card.has_class("running")
+
+    asyncio.run(scenario())
+
+
+def test_tui_escape_cancels_generation(tmp_path: Path) -> None:
+    runtime = make_runtime(tmp_path, [], llm=SlowLLM([]))
+
+    async def scenario() -> None:
+        tui = XAgentApp(runtime)
+        async with tui.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            tui.prompt_input.value = "hi"
+            await pilot.press("enter")
+            await wait_until(lambda: len(chat_widgets(tui, AssistantMessage)) == 1)
+            await pilot.press("escape")
+            await wait_until(lambda: tui.status.state == "idle")
+            await pilot.pause()
+
+            assert runtime.session.turn_count == 0
+            notices = [notice for notice in chat_widgets(tui, NoticeMessage) if isinstance(notice, NoticeMessage)]
+            assert any("已中断" in notice.message for notice in notices)
+
+    asyncio.run(scenario())
+
+
+def test_tui_help_and_slash_commands(tmp_path: Path) -> None:
+    runtime = make_runtime(tmp_path, [])
+
+    async def scenario() -> None:
+        tui = XAgentApp(runtime)
+        async with tui.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+
+            await pilot.press("f1")
+            await pilot.pause()
+            assert isinstance(tui.screen, HelpScreen)
+
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not isinstance(tui.screen, HelpScreen)
+
+            tui.prompt_input.value = "/tools"
+            await pilot.press("enter")
+            await pilot.pause()
+            notices = [notice for notice in chat_widgets(tui, NoticeMessage) if isinstance(notice, NoticeMessage)]
+            assert notices and "getCwd" in notices[-1].message
+
+    asyncio.run(scenario())
+
+
+def test_tui_new_session_resets_history(tmp_path: Path) -> None:
+    runtime = make_runtime(tmp_path, [[TextDelta("ok"), StreamCompleted("stop")]])
+
+    async def scenario() -> None:
+        tui = XAgentApp(runtime)
+        async with tui.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            tui.prompt_input.value = "hi"
+            await pilot.press("enter")
+            await wait_until(lambda: runtime.session.turn_count == 1)
+            await pilot.pause()
+
+            await pilot.press("ctrl+n")
+            await pilot.pause()
+            assert runtime.session.turn_count == 0
+            assert chat_widgets(tui, UserMessage) == []
+
+    asyncio.run(scenario())

@@ -1,0 +1,26 @@
+# xAgent 配置模板：复制为 config.ini 后填写
+# 也支持环境变量覆盖：XAGENT_BASE_URL / XAGENT_MODEL / XAGENT_API_KEY
+#                   XAGENT_CONFIG / XAGENT_WORKSPACE / XAGENT_MAX_ITERATIONS
+#                   XAGENT_TIMEOUT / XAGENT_TEMPERATURE / XAGENT_THEME
+
+[llm]
+base_url = https://api.openai.com/v1
+model = gpt-4o-mini
+api_key = sk-your-key
+# 单次请求读超时（秒）
+# timeout = 90
+# 可选：采样温度
+# temperature = 0.2
+
+[agent]
+# 单轮问答内最多调用模型多少次（防止工具循环失控）
+# max_iterations = 8
+# 单个工具结果回传模型的最大字符数
+# max_tool_output_chars = 30000
+# 沙箱工作目录，默认启动时的当前目录
+# workspace = .
+# TUI 主题
+# theme = textual-dark
+# 自定义 system prompt（支持多行缩进）
+# system_prompt =
+#     你是一个严谨的编程助手……

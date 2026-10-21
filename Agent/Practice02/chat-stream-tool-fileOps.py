@@ -31,6 +31,7 @@ WORKSPACE = os.path.realpath(os.getcwd())
 
 MAX_READ_BYTES = 256 * 1024  # 单次读入上限，避免把巨大的日志塞进上下文
 MAX_LIST_ENTRIES = 200  # 单次列目录上限
+MAX_TOOL_RESULT_LINES = 3  # 终端回显工具结果的最大行数，超出部分用 ... 代替
 
 # 告诉模型「你有哪些工具可用」。模型只会返回“想调用谁、参数是什么”，
 # 真正的执行由下面 run_tool() 在本地完成。
@@ -614,6 +615,17 @@ def run_tool(name, arguments):
         return "工具执行失败：%s" % e
 
 
+def format_tool_result(result, max_lines=MAX_TOOL_RESULT_LINES):
+    """终端回显用：只保留前 max_lines 行，多余内容用 ... 代替。
+
+    只影响屏幕输出，交回模型的 result 仍是完整内容。
+    """
+    lines = result.splitlines() or [""]
+    if len(lines) <= max_lines:
+        return "\n".join(lines)
+    return "\n".join(lines[: max_lines - 1] + ["..."])
+
+
 def chat_stream(messages):
     """发一次流式请求，边打印正文边收集工具调用，返回 (正文, 工具调用列表)。"""
     payload: Any = {"model": model, "messages": messages, "tools": tools, "stream": True}
@@ -707,7 +719,7 @@ try:
                     args = call["arguments"] or "{}"
                     print("[调用工具] %s(%s)" % (call["name"], args))
                     result = run_tool(call["name"], args)
-                    print("[工具结果] %s" % result)
+                    print("[工具结果] %s" % format_tool_result(result))
                     # 用 tool 角色把执行结果交回模型，模型据此继续生成
                     messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
 
