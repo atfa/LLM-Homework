@@ -30,7 +30,7 @@ def build_runtime(
     """
     app_config = config or load_config(config_path=config_path, workspace=workspace)
 
-    registry = build_tool_registry(app_config.workspace)
+    registry = build_tool_registry(app_config.workspace, search=app_config.search)
     llm = OpenAICompatibleClient(
         base_url=app_config.llm.base_url,
         api_key=app_config.llm.api_key,

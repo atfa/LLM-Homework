@@ -1,8 +1,9 @@
 # xAgent · 分层可扩展的本地工具 Agent
 
 > 由 `Agent/Practice02/chat-stream-tool-fileOps.py` 重构而来：保留原有的流式输出、
-> 12 个工具、路径沙箱与工具调用循环语义，同时把 **core 与 UI 彻底分离**，
+> 12 个本地工具、路径沙箱与工具调用循环语义，同时把 **core 与 UI 彻底分离**，
 > 提供 Textual TUI，并为 Web / Desktop 等界面预留稳定契约。
+> 后续新增了第 13 个工具 `webSearch`（百度千帆 AI 搜索）。
 
 ![xAgent TUI](docs/tui-preview.png)
 
@@ -14,7 +15,7 @@
 | UI 只能是终端 `print` | Textual TUI 消费事件流；Web / Desktop 照 `tui/` 参考实现新增即可 |
 | 工具循环 `while True`，可能无限调用 | `max_iterations` 上限 + 可取消 |
 | 工具逻辑与 `os` / 全局变量耦合 | 工具按领域拆分子包（`date_time/`、`file_ops/`），通过 `ToolRegistry` 端口注入 |
-| 无测试 | 68 项测试：领域、沙箱、工具、循环、SSE、配置、分层约束、TUI 无头 |
+| 无测试 | 85 项测试：领域、沙箱、工具、循环、SSE、配置、分层约束、TUI 无头 |
 | 无法替换模型客户端 | `LLMClient` 端口，OpenAI 兼容实现可替换 |
 
 ## 亮点
@@ -51,7 +52,9 @@ xagent                                            # pip install -e . 后的命�
 
 配置也可完全走环境变量：`XAGENT_BASE_URL`、`XAGENT_MODEL`、`XAGENT_API_KEY`、
 `XAGENT_WORKSPACE`、`XAGENT_MAX_ITERATIONS`、`XAGENT_TIMEOUT`、`XAGENT_TEMPERATURE`、
-`XAGENT_THEME`、`XAGENT_CONFIG`。
+`XAGENT_THEME`、`XAGENT_CONFIG`，以及联网搜索的 `XAGENT_SEARCH_API_KEY`、
+`XAGENT_SEARCH_ENDPOINT`、`XAGENT_SEARCH_SOURCE`、`XAGENT_SEARCH_TOP_K`、
+`XAGENT_SEARCH_TIMEOUT`、`XAGENT_SEARCH_RECENCY`、`XAGENT_SEARCH_MODEL`。
 
 ## TUI
 
@@ -61,7 +64,7 @@ xagent                                            # pip install -e . 后的命�
 │ ChatView                         │ Sidebar                   │
 │  · 用户消息                      │  · 模型 / 接口 / 目录     │
 │  · 流式 Markdown 回答            │  · 会话 id / 轮次 / 消息  │
-│  · 可展开的工具卡片（参数/结果） │  · 12 个工具与说明        │
+│  · 可展开的工具卡片（参数/结果） │  · 13 个工具与说明        │
 │  · 错误 / 中断提示               │                           │
 ├──────────────────────────────────┴───────────────────────────┤
 │ Input：Enter 发送，Esc 中断                                  │
@@ -119,16 +122,17 @@ Agent/xAgent/
 │   │       ├── llm/            #     SSE 解析 + 线程桥
 │   │       │   └── openai_compatible.py
 │   │       └── tools/          #     注册表 + 按领域拆分的工具子包
-│   │           ├── catalog.py  #       装配 12 个工具
+│   │           ├── catalog.py  #       装配 13 个工具
 │   │           ├── registry.py #       参数解析、线程执行、错误归一化
 │   │           ├── date_time/  #       getDate / isLeapYear
-│   │           └── file_ops/   #       Sandbox + 10 个文件工具
+│   │           ├── file_ops/   #       Sandbox + 10 个文件工具
+│   │           └── web_search/ #       webSearch（百度千帆 AI 搜索）
 │   └── tui/                    # Textual 界面（core 的一个消费者，可整体替换）
 │       ├── app.py              #   App / 事件渲染 / 斜杠命令
 │       ├── formatting.py       #   跨 UI 复用的展示格式化
 │       ├── help_screen.py      #   帮助弹窗
 │       └── widgets/            #   ChatView / Sidebar / StatusBar
-├── tests/                      # 68 项测试，含分层约束与 TUI 冒烟
+├── tests/                      # 85 项测试，含分层约束与 TUI 冒烟
 ├── tools/                      # 开发工具：自动演示 + 预览截图
 └── docs/
     ├── tui-preview.png
@@ -189,7 +193,7 @@ TUI 不接触 SSE、HTTP 或工具实现，只消费（`tui/` 是参考实现，
 
 取消不以事件表达：`run_turn` 被取消时直接抛 `CancelledError`，由 UI 决定提示方式。
 
-## 工具（12 个）
+## 工具（13 个）
 
 | 工具 | 说明 |
 | --- | --- |
@@ -205,9 +209,62 @@ TUI 不接触 SSE、HTTP 或工具实现，只消费（`tui/` 是参考实现，
 | `deleteDir` | 非空目录必须 `recursive=true` |
 | `deleteFile` | 删除单个文件 |
 | `renamePath` | 原地改名，不移动、不覆盖 |
+| `webSearch` | 联网搜索（百度千帆 AI 搜索），返回标题 / 链接 / 日期 / 摘要 |
 
 沙箱规则：所有路径先 `expanduser` 再 `realpath`（解析符号链接），必须落在工作目录内；
 `../`、绝对路径越界、指向外部的软链接都会被拒绝。二进制文件与超大文件拒绝读取。
+
+### 联网搜索（webSearch）
+
+`webSearch` 调用**百度千帆 AI 搜索**
+（[接口文档](https://cloud.baidu.com/doc/qianfan-api/s/Hmbu8m06u)），
+把「实时全网信息」变成模型可以调用的 function call：
+
+```jsonc
+{
+  "name": "webSearch",
+  "parameters": {
+    "query":   "搜索关键词或问题",
+    "top_k":   5,          // 可选，1~20
+    "recency": "month"     // 可选，week / month / semiyear / year
+  }
+}
+```
+
+返回给模型的是可读文本：每条结果包含标题、链接、来源站点、发布日期与摘要
+（单条摘要截断到 600 字，避免挤占上下文）。
+
+两种服务模式由配置决定：
+
+| 配置 | 模式 | 返回 |
+| --- | --- | --- |
+| `[search] model` 留空（默认） | 百度搜索 | 只有网页结果，**由本 Agent 自己的大模型阅读并归纳** |
+| `[search] model = <千帆已开通的模型>` | 智能搜索生成 | 网页结果 + 千帆模型写好的总结 |
+
+在 `config.ini` 的 `[search]` 段配置（也可用环境变量覆盖）：
+
+```ini
+[search]
+baidu_qianfan_api_key = bce-v3/ALTAK-xxx/xxx   # 必填，否则 webSearch 会提示「未配置 API Key」
+search_source = baidu_search_v2                  # v1 / v2，v2 数据更丰富
+top_k = 5                                         # 每次搜索返回条数（1~20）
+timeout = 30                                      # 搜索超时（秒）
+recency =                                         # 默认不按时间过滤
+model =                                           # 留空 = 百度搜索模式
+```
+
+| 环境变量 | 对应配置 |
+| --- | --- |
+| `XAGENT_SEARCH_API_KEY` | `baidu_qianfan_api_key` |
+| `XAGENT_SEARCH_ENDPOINT` | `endpoint` |
+| `XAGENT_SEARCH_SOURCE` | `search_source` |
+| `XAGENT_SEARCH_TOP_K` | `top_k` |
+| `XAGENT_SEARCH_TIMEOUT` | `timeout` |
+| `XAGENT_SEARCH_RECENCY` | `recency` |
+| `XAGENT_SEARCH_MODEL` | `model` |
+
+未配置 Key 时 `webSearch` 仍会出现在工具列表里，但调用会得到一条可读提示
+（而不是静默失败），便于定位问题。
 
 ## 配置
 
@@ -224,6 +281,9 @@ max_iterations = 8              # 单轮最多模型调用次数
 max_tool_output_chars = 30000  # 工具结果回传模型的上限
 # workspace = .
 # theme = textual-dark
+
+[search]
+baidu_qianfan_api_key = bce-v3/ALTAK-xxx/xxx   # 可选：联网搜索工具
 ```
 
 `config.ini` 已被 `.gitignore` 忽略；仓库里只提交模板。
@@ -255,7 +315,7 @@ max_tool_output_chars = 30000  # 工具结果回传模型的上限
 ## 测试与质量
 
 ```bash
-.venv/bin/python -m pytest             # 68 passed
+.venv/bin/python -m pytest             # 85 passed
 .venv/bin/python -m pyright            # 0 errors（使用项目 .venv）
 ```
 
@@ -264,6 +324,7 @@ max_tool_output_chars = 30000  # 工具结果回传模型的上限
 - `test_domain.py`：消息不变量、wire 格式、分块工具调用合并、会话历史
 - `test_sandbox.py`：越界、外部软链接、编码探测
 - `test_file_tools.py`：10 个文件工具的完整生命周期与破坏性操作保护
+- `test_search_tools.py`：`[search]` 配置解析、搜索请求体、响应解析与错误归一化
 - `test_agent_service.py`：工具循环、历史只存最终问答、最大轮数、流失败、取消、截断
 - `test_sse_decoder.py`：SSE 分块、`[DONE]`、错误载荷、畸形数据
 - `test_config.py`：ini / 环境变量优先级、缺失项与非法值提示

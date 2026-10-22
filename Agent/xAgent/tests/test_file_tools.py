@@ -18,9 +18,9 @@ def invoke(registry: ToolRegistryImpl, name: str, **arguments: object) -> ToolOu
     return asyncio.run(registry.invoke(call))
 
 
-def test_default_registry_has_twelve_tools(tmp_path: Path) -> None:
+def test_default_registry_has_thirteen_tools(tmp_path: Path) -> None:
     registry = build_tool_registry(tmp_path)
-    assert len(registry) == 12
+    assert len(registry) == 13
     assert registry.names() == (
         "getDate",
         "isLeapYear",
@@ -34,6 +34,7 @@ def test_default_registry_has_twelve_tools(tmp_path: Path) -> None:
         "deleteDir",
         "deleteFile",
         "renamePath",
+        "webSearch",
     )
     assert all(definition.parameters["type"] == "object" for definition in registry.definitions())
 

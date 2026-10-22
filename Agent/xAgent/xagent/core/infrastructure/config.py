@@ -15,6 +15,18 @@ from ..domain.errors import ConfigurationError
 
 DEFAULT_CONFIG_FILENAME = "config.ini"
 
+DEFAULT_SEARCH_ENDPOINT = "https://qianfan.baidubce.com/v2/ai_search/chat/completions"
+"""百度千帆 AI 搜索端点。"""
+
+DEFAULT_SEARCH_SOURCE = "baidu_search_v2"
+"""搜索引擎版本：v2 数据更丰富，更适合配合大模型使用。"""
+
+SEARCH_RECENCY_VALUES = ("week", "month", "semiyear", "year")
+"""发布时间过滤：最近 7 天 / 30 天 / 180 天 / 365 天。"""
+
+MAX_SEARCH_TOP_K = 20
+"""单次搜索最多返回的网页结果条数。"""
+
 
 @dataclass(frozen=True, slots=True)
 class LLMSettings:
@@ -26,6 +38,20 @@ class LLMSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class SearchSettings:
+    """百度千帆 AI 搜索（联网搜索工具）的连接与运行参数。"""
+
+    api_key: str = ""
+    endpoint: str = DEFAULT_SEARCH_ENDPOINT
+    search_source: str = DEFAULT_SEARCH_SOURCE
+    top_k: int = 5
+    timeout_s: float = 30.0
+    recency: str = ""
+    model: str = ""
+    """留空 = 百度搜索模式（只返回网页结果）；填写 = 智能搜索生成模式（额外返回模型总结）。"""
+
+
+@dataclass(frozen=True, slots=True)
 class AppConfig:
     llm: LLMSettings
     workspace: Path
@@ -34,6 +60,7 @@ class AppConfig:
     system_prompt: str = ""
     theme: str = "textual-dark"
     config_path: Path | None = None
+    search: SearchSettings = SearchSettings()
 
 
 def _project_config_path() -> Path:
@@ -99,6 +126,66 @@ def _int_or(value: str | int | None, default: int, *, label: str) -> int:
         return int(value)
     except (TypeError, ValueError) as exc:
         raise ConfigurationError(f"{label} 必须是整数，收到 {value!r}") from exc
+
+
+def _float_or(value: str | float | None, default: float, *, label: str) -> float:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise ConfigurationError(f"{label} 必须是数字，收到 {value!r}") from exc
+
+
+def _load_search_settings(parser: configparser.ConfigParser, path: Path) -> SearchSettings:
+    """读取 [search] 段。缺失或留空是允许的（搜索工具会提示未配置）。"""
+    section = parser["search"] if "search" in parser else {}
+
+    api_key = (_env("XAGENT_SEARCH_API_KEY") or section.get("baidu_qianfan_api_key", "")).strip()
+    if api_key and ("your-" in api_key.lower() or api_key.lower().endswith("/xxx")):
+        raise ConfigurationError(f"{path} 的 [search] 段 baidu_qianfan_api_key 仍是模板占位值，请填写真实 Key")
+
+    endpoint = (_env("XAGENT_SEARCH_ENDPOINT") or section.get("endpoint", "") or DEFAULT_SEARCH_ENDPOINT).strip()
+    if not endpoint.startswith(("http://", "https://")):
+        raise ConfigurationError(f"[search] endpoint 必须以 http:// 或 https:// 开头，收到 {endpoint!r}")
+
+    search_source = (_env("XAGENT_SEARCH_SOURCE") or section.get("search_source", "") or DEFAULT_SEARCH_SOURCE).strip()
+    if search_source not in ("baidu_search_v1", "baidu_search_v2"):
+        raise ConfigurationError(
+            f"[search] search_source 只能是 baidu_search_v1 或 baidu_search_v2，收到 {search_source!r}"
+        )
+
+    top_k = _int_or(
+        _env("XAGENT_SEARCH_TOP_K") or section.get("top_k"),
+        5,
+        label="[search] top_k",
+    )
+    if top_k < 1 or top_k > MAX_SEARCH_TOP_K:
+        raise ConfigurationError(f"[search] top_k 必须在 1~{MAX_SEARCH_TOP_K} 之间，收到 {top_k}")
+
+    timeout_s = _float_or(
+        _env("XAGENT_SEARCH_TIMEOUT") or section.get("timeout"),
+        30.0,
+        label="[search] timeout",
+    )
+    if timeout_s <= 0:
+        raise ConfigurationError("[search] timeout 必须大于 0")
+
+    recency = (_env("XAGENT_SEARCH_RECENCY") or section.get("recency", "")).strip()
+    if recency and recency not in SEARCH_RECENCY_VALUES:
+        raise ConfigurationError(f"[search] recency 只能是 {'/'.join(SEARCH_RECENCY_VALUES)} 之一，收到 {recency!r}")
+
+    model = (_env("XAGENT_SEARCH_MODEL") or section.get("model", "")).strip()
+
+    return SearchSettings(
+        api_key=api_key,
+        endpoint=endpoint,
+        search_source=search_source,
+        top_k=top_k,
+        timeout_s=timeout_s,
+        recency=recency,
+        model=model,
+    )
 
 
 def load_config(
@@ -186,4 +273,5 @@ def load_config(
         system_prompt=agent_section.get("system_prompt", "").strip(),
         theme=(_env("XAGENT_THEME") or agent_section.get("theme", "textual-dark")).strip() or "textual-dark",
         config_path=path,
+        search=_load_search_settings(parser, path),
     )

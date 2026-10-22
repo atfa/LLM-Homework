@@ -3,6 +3,6 @@
 只允许依赖 domain / ports，不得依赖 application / composition / tui。
 """
 
-from .config import AppConfig, LLMSettings, find_config_file, load_config
+from .config import AppConfig, LLMSettings, SearchSettings, find_config_file, load_config
 
-__all__ = ["AppConfig", "LLMSettings", "find_config_file", "load_config"]
+__all__ = ["AppConfig", "LLMSettings", "SearchSettings", "find_config_file", "load_config"]

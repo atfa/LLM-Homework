@@ -74,7 +74,7 @@ flowchart TB
 | 领域 | `xagent.core.domain` | 标准库 | 不可变数据模型、不变量、纯算法 |
 | 端口 | `xagent.core.ports` | `core.domain` | `LLMClient`、`ToolRegistry` 两个 Protocol |
 | 应用 | `xagent.core.application` | `core.domain`、`core.ports` | 工具循环、会话、事件、运行参数 |
-| 基础设施 | `xagent.core.infrastructure` | `core.domain`、`core.ports` | 配置、SSE 客户端、沙箱、12 个工具 |
+| 基础设施 | `xagent.core.infrastructure` | `core.domain`、`core.ports` | 配置、SSE 客户端、沙箱、13 个工具 |
 | 界面 | `xagent.tui`（未来 `xagent.web` 等） | `core.application`、`core.domain`、`core.ports`、本层 | Textual TUI、展示格式化 |
 | 组合根 | `xagent.core.composition` | core 内部全部 | 依赖装配，决定「用哪个实现」 |
 | 启动 | `xagent.entrypoint` | core + 界面包 | 参数解析、启动 TUI |
@@ -243,6 +243,19 @@ def count_lines(sandbox: Sandbox, args: Mapping[str, object]) -> str:
 # 3) 在 file_ops/file_tools.py 的 _HANDLERS 中注册（新领域则新建子包并加入 catalog）
 ```
 
+工具按「领域」拆成子包，各自拥有定义、处理器与外部依赖：
+
+| 子包 | 工具 | 外部依赖 |
+| --- | --- | --- |
+| `date_time/` | `getDate`、`isLeapYear` | 无（标准库 / 子进程） |
+| `file_ops/` | `getCwd` … `renamePath` | 无（受 `Sandbox` 约束） |
+| `web_search/` | `webSearch` | 百度千帆 AI 搜索（HTTP，`requests`） |
+
+`web_search/` 是「需要网络与外部凭证」的工具范例：凭证来自 `[search]` 段
+（`SearchSettings`），由 `catalog.build_tool_registry(workspace, search=...)` 注入；
+凭证缺失时工具仍然注册，但调用会返回可读的「未配置 API Key」提示，
+既不静默失败，也不会让工具凭空消失。
+
 ### 8.2 新增模型厂商
 
 实现 `LLMClient` 端口：
@@ -278,7 +291,7 @@ class MyProviderClient:
 
 | 决策 | 原因 | 代价 |
 | --- | --- | --- |
-| 不引入 LangChain / 框架 | 12 个工具、单循环，框架抽象成本高于收益 | 需要自己维护消息协议 |
+| 不引入 LangChain / 框架 | 13 个工具、单循环，框架抽象成本高于收益 | 需要自己维护消息协议 |
 | 自定义 `ToolRegistry` | 便于测试、错误归一化、线程池执行 | 少量样板代码 |
 | 应用层产出事件而非回调 | UI 可自由组合、测试可断言事件序列 | UI 需要写一个 `async for` |
 | 消息用不可变 dataclass | 防止历史被意外修改，便于并发推理 | 构造时略啰嗦 |

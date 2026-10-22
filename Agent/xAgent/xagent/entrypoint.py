@@ -35,6 +35,7 @@ def _list_tools(workspace: str | None) -> int:
     print(f"共 {len(registry)} 个工具：")
     for definition in registry.definitions():
         print(f"  {definition.name:<12} {definition.description}")
+    print("提示：webSearch 需要在 config.ini 的 [search] 段配置 baidu_qianfan_api_key 后可用。")
     return 0
 
 
