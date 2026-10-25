@@ -3,7 +3,8 @@
 > 由 `Agent/Practice02/chat-stream-tool-fileOps.py` 重构而来：保留原有的流式输出、
 > 12 个本地工具、路径沙箱与工具调用循环语义，同时把 **core 与 UI 彻底分离**，
 > 提供 Textual TUI，并为 Web / Desktop 等界面预留稳定契约。
-> 后续新增了第 13 个工具 `webSearch`（百度千帆 AI 搜索）。
+> 后续新增了第 13 个工具 `webSearch`（百度千帆 AI 搜索）
+> 与第 14 个工具 `fetchWeb`（网页正文提取）。
 
 ![xAgent TUI](docs/tui-preview.png)
 
@@ -15,7 +16,7 @@
 | UI 只能是终端 `print` | Textual TUI 消费事件流；Web / Desktop 照 `tui/` 参考实现新增即可 |
 | 工具循环 `while True`，可能无限调用 | `max_iterations` 上限 + 可取消 |
 | 工具逻辑与 `os` / 全局变量耦合 | 工具按领域拆分子包（`date_time/`、`file_ops/`），通过 `ToolRegistry` 端口注入 |
-| 无测试 | 85 项测试：领域、沙箱、工具、循环、SSE、配置、分层约束、TUI 无头 |
+| 无测试 | 94 项测试：领域、沙箱、工具、循环、SSE、配置、分层约束、TUI 无头 |
 | 无法替换模型客户端 | `LLMClient` 端口，OpenAI 兼容实现可替换 |
 
 ## 亮点
@@ -64,7 +65,7 @@ xagent                                            # pip install -e . 后的命�
 │ ChatView                         │ Sidebar                   │
 │  · 用户消息                      │  · 模型 / 接口 / 目录     │
 │  · 流式 Markdown 回答            │  · 会话 id / 轮次 / 消息  │
-│  · 可展开的工具卡片（参数/结果） │  · 13 个工具与说明        │
+│  · 可展开的工具卡片（参数/结果） │  · 14 个工具与说明        │
 │  · 错误 / 中断提示               │                           │
 ├──────────────────────────────────┴───────────────────────────┤
 │ Input：Enter 发送，Esc 中断                                  │
@@ -122,11 +123,12 @@ Agent/xAgent/
 │   │       ├── llm/            #     SSE 解析 + 线程桥
 │   │       │   └── openai_compatible.py
 │   │       └── tools/          #     注册表 + 按领域拆分的工具子包
-│   │           ├── catalog.py  #       装配 13 个工具
+│   │           ├── catalog.py  #       装配 14 个工具
 │   │           ├── registry.py #       参数解析、线程执行、错误归一化
 │   │           ├── date_time/  #       getDate / isLeapYear
 │   │           ├── file_ops/   #       Sandbox + 10 个文件工具
-│   │           └── web_search/ #       webSearch（百度千帆 AI 搜索）
+│   │           ├── web_search/ #       webSearch（百度千帆 AI 搜索）
+│   │           └── web_fetch/  #       fetchWeb（curl + trafilatura 网页正文）
 │   └── tui/                    # Textual 界面（core 的一个消费者，可整体替换）
 │       ├── app.py              #   App / 事件渲染 / 斜杠命令
 │       ├── formatting.py       #   跨 UI 复用的展示格式化
@@ -151,7 +153,7 @@ flowchart TB
     APP["core.application · AgentService"]
     PORTS["core.ports · LLMClient / ToolRegistry"]
     DOM["core.domain · 消息 / 工具 / 事件 / 会话"]
-    INFRA["core.infrastructure · OpenAI 客户端 / 12 工具 / 配置"]
+    INFRA["core.infrastructure · OpenAI 客户端 / 14 工具 / 配置"]
 
     TUI --> APP
     FUTURE --> APP
@@ -193,7 +195,7 @@ TUI 不接触 SSE、HTTP 或工具实现，只消费（`tui/` 是参考实现，
 
 取消不以事件表达：`run_turn` 被取消时直接抛 `CancelledError`，由 UI 决定提示方式。
 
-## 工具（13 个）
+## 工具（14 个）
 
 | 工具 | 说明 |
 | --- | --- |
@@ -210,6 +212,7 @@ TUI 不接触 SSE、HTTP 或工具实现，只消费（`tui/` 是参考实现，
 | `deleteFile` | 删除单个文件 |
 | `renamePath` | 原地改名，不移动、不覆盖 |
 | `webSearch` | 联网搜索（百度千帆 AI 搜索），返回标题 / 链接 / 日期 / 摘要 |
+| `fetchWeb` | 抓取网页并提取正文为 Markdown（curl + trafilatura） |
 
 沙箱规则：所有路径先 `expanduser` 再 `realpath`（解析符号链接），必须落在工作目录内；
 `../`、绝对路径越界、指向外部的软链接都会被拒绝。二进制文件与超大文件拒绝读取。
@@ -265,6 +268,28 @@ model =                                           # 留空 = 百度搜索模式
 
 未配置 Key 时 `webSearch` 仍会出现在工具列表里，但调用会得到一条可读提示
 （而不是静默失败），便于定位问题。
+
+### 网页正文提取（fetchWeb）
+
+`fetchWeb` 把「打开一个网页读正文」变成模型可调用的 function call：
+
+```jsonc
+{
+  "name": "fetchWeb",
+  "parameters": {
+    "url": "https://example.com/article"   // 必填，http/https
+  }
+}
+```
+
+实现方式：用 `subprocess` 以**参数列表**（非 `shell=True`）调用本地 `curl` 抓取 HTML，
+再用 [trafilatura](https://github.com/adbar/trafilatura) 提取正文并转换为 Markdown，
+尽量保留标题、段落、列表、表格与链接，去掉导航栏、广告、页脚等无关内容，
+以减少回传模型的上下文 Token。
+
+返回给模型的是「原始 URL + Markdown 正文」。以下情况会返回可读错误
+（而不是中断对话）：URL 非法、curl 不可用、访问失败或超时、HTML 解析失败、
+正文无法提取。该工具依赖 `trafilatura`（已列入项目依赖）。
 
 ## 配置
 
@@ -325,6 +350,7 @@ baidu_qianfan_api_key = bce-v3/ALTAK-xxx/xxx   # 可选：联网搜索工具
 - `test_sandbox.py`：越界、外部软链接、编码探测
 - `test_file_tools.py`：10 个文件工具的完整生命周期与破坏性操作保护
 - `test_search_tools.py`：`[search]` 配置解析、搜索请求体、响应解析与错误归一化
+- `test_fetch_tools.py`：`fetchWeb` 参数校验、curl 调用（非 shell）、正文提取与各类失败归一化
 - `test_agent_service.py`：工具循环、历史只存最终问答、最大轮数、流失败、取消、截断
 - `test_sse_decoder.py`：SSE 分块、`[DONE]`、错误载荷、畸形数据
 - `test_config.py`：ini / 环境变量优先级、缺失项与非法值提示

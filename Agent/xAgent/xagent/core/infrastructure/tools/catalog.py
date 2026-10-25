@@ -1,4 +1,4 @@
-"""工具目录：装配 13 个默认工具（时间 2 + 文件 10 + 联网搜索 1）。"""
+"""工具目录：装配默认工具（时间 2 + 文件 10 + 联网搜索 1 + 网页抓取 1）。"""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from ..config import SearchSettings
 from .date_time import datetime_tools
 from .file_ops import Sandbox, file_tools
 from .registry import ToolRegistryImpl
+from .web_fetch import fetch_web_tools
 from .web_search import QianfanSearchClient, web_search_tools
 
 
@@ -16,7 +17,7 @@ def build_tool_registry(
     *,
     search: SearchSettings | None = None,
 ) -> ToolRegistryImpl:
-    """构建绑定到指定工作目录的默认工具集（时间 2 个 + 文件 10 个 + 联网搜索 1 个）。
+    """构建绑定到指定工作目录的默认工具集。
 
     ``search`` 为空表示没有配置百度千帆搜索；此时 ``webSearch`` 仍会注册，
     但调用时会返回「未配置 API Key」的可读提示。
@@ -33,7 +34,12 @@ def build_tool_registry(
         model=settings.model,
     )
     registry = ToolRegistryImpl()
-    for definition, handler in (*datetime_tools(), *file_tools(sandbox), *web_search_tools(client)):
+    for definition, handler in (
+        *datetime_tools(),
+        *file_tools(sandbox),
+        *web_search_tools(client),
+        *fetch_web_tools(),
+    ):
         registry.register(definition, handler)
     return registry
 

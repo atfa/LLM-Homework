@@ -27,7 +27,7 @@ CORE_LAYER_RULES: dict[str, tuple[set[str], set[str]]] = {
     "core/application": ({"xagent.core.domain", "xagent.core.ports", "xagent.core.application"}, set()),
     "core/infrastructure": (
         {"xagent.core.domain", "xagent.core.ports", "xagent.core.infrastructure"},
-        {"requests"},
+        {"requests", "trafilatura"},
     ),
 }
 

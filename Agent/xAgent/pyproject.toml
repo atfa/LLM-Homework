@@ -12,6 +12,7 @@ dependencies = [
     "requests>=2.31",
     "textual>=1.0",
     "rich>=13",
+    "trafilatura>=1.6",
 ]
 
 [project.optional-dependencies]
