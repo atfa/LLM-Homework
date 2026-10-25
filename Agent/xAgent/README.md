@@ -3,8 +3,9 @@
 > 由 `Agent/Practice02/chat-stream-tool-fileOps.py` 重构而来：保留原有的流式输出、
 > 12 个本地工具、路径沙箱与工具调用循环语义，同时把 **core 与 UI 彻底分离**，
 > 提供 Textual TUI，并为 Web / Desktop 等界面预留稳定契约。
-> 后续新增了第 13 个工具 `webSearch`（百度千帆 AI 搜索）
-> 与第 14 个工具 `fetchWeb`（网页正文提取）。
+> 后续新增了第 13 个工具 `webSearch`（百度千帆 AI 搜索）、
+> 第 14 个工具 `fetchWeb`（网页正文提取）
+> 与第 15 个工具 `runCli`（调用本机任意命令行程序）。
 
 ![xAgent TUI](docs/tui-preview.png)
 
@@ -16,7 +17,7 @@
 | UI 只能是终端 `print` | Textual TUI 消费事件流；Web / Desktop 照 `tui/` 参考实现新增即可 |
 | 工具循环 `while True`，可能无限调用 | `max_iterations` 上限 + 可取消 |
 | 工具逻辑与 `os` / 全局变量耦合 | 工具按领域拆分子包（`date_time/`、`file_ops/`），通过 `ToolRegistry` 端口注入 |
-| 无测试 | 94 项测试：领域、沙箱、工具、循环、SSE、配置、分层约束、TUI 无头 |
+| 无测试 | 128 项测试：领域、沙箱、工具、循环、SSE、配置、分层约束、TUI 无头 |
 | 无法替换模型客户端 | `LLMClient` 端口，OpenAI 兼容实现可替换 |
 
 ## 亮点
@@ -65,7 +66,7 @@ xagent                                            # pip install -e . 后的命�
 │ ChatView                         │ Sidebar                   │
 │  · 用户消息                      │  · 模型 / 接口 / 目录     │
 │  · 流式 Markdown 回答            │  · 会话 id / 轮次 / 消息  │
-│  · 可展开的工具卡片（参数/结果） │  · 14 个工具与说明        │
+│  · 可展开的工具卡片（参数/结果） │  · 15 个工具与说明        │
 │  · 错误 / 中断提示               │                           │
 ├──────────────────────────────────┴───────────────────────────┤
 │ Input：Enter 发送，Esc 中断                                  │
@@ -123,18 +124,19 @@ Agent/xAgent/
 │   │       ├── llm/            #     SSE 解析 + 线程桥
 │   │       │   └── openai_compatible.py
 │   │       └── tools/          #     注册表 + 按领域拆分的工具子包
-│   │           ├── catalog.py  #       装配 14 个工具
+│   │           ├── catalog.py  #       装配 15 个工具
 │   │           ├── registry.py #       参数解析、线程执行、错误归一化
 │   │           ├── date_time/  #       getDate / isLeapYear
 │   │           ├── file_ops/   #       Sandbox + 10 个文件工具
 │   │           ├── web_search/ #       webSearch（百度千帆 AI 搜索）
-│   │           └── web_fetch/  #       fetchWeb（curl + trafilatura 网页正文）
+│   │           ├── web_fetch/  #       fetchWeb（curl + trafilatura 网页正文）
+│   │           └── run_cli/    #       runCli（subprocess 调用本机 CLI）
 │   └── tui/                    # Textual 界面（core 的一个消费者，可整体替换）
 │       ├── app.py              #   App / 事件渲染 / 斜杠命令
 │       ├── formatting.py       #   跨 UI 复用的展示格式化
 │       ├── help_screen.py      #   帮助弹窗
 │       └── widgets/            #   ChatView / Sidebar / StatusBar
-├── tests/                      # 85 项测试，含分层约束与 TUI 冒烟
+├── tests/                      # 128 项测试，含分层约束与 TUI 冒烟
 ├── tools/                      # 开发工具：自动演示 + 预览截图
 └── docs/
     ├── tui-preview.png
@@ -153,7 +155,7 @@ flowchart TB
     APP["core.application · AgentService"]
     PORTS["core.ports · LLMClient / ToolRegistry"]
     DOM["core.domain · 消息 / 工具 / 事件 / 会话"]
-    INFRA["core.infrastructure · OpenAI 客户端 / 14 工具 / 配置"]
+    INFRA["core.infrastructure · OpenAI 客户端 / 15 工具 / 配置"]
 
     TUI --> APP
     FUTURE --> APP
@@ -195,7 +197,7 @@ TUI 不接触 SSE、HTTP 或工具实现，只消费（`tui/` 是参考实现，
 
 取消不以事件表达：`run_turn` 被取消时直接抛 `CancelledError`，由 UI 决定提示方式。
 
-## 工具（14 个）
+## 工具（15 个）
 
 | 工具 | 说明 |
 | --- | --- |
@@ -213,6 +215,7 @@ TUI 不接触 SSE、HTTP 或工具实现，只消费（`tui/` 是参考实现，
 | `renamePath` | 原地改名，不移动、不覆盖 |
 | `webSearch` | 联网搜索（百度千帆 AI 搜索），返回标题 / 链接 / 日期 / 摘要 |
 | `fetchWeb` | 抓取网页并提取正文为 Markdown（curl + trafilatura） |
+| `runCli` | 调用本机任意命令行程序，返回 stdout / stderr / 退出码（`subprocess`，非 shell） |
 
 沙箱规则：所有路径先 `expanduser` 再 `realpath`（解析符号链接），必须落在工作目录内；
 `../`、绝对路径越界、指向外部的软链接都会被拒绝。二进制文件与超大文件拒绝读取。
@@ -291,6 +294,39 @@ model =                                           # 留空 = 百度搜索模式
 （而不是中断对话）：URL 非法、curl 不可用、访问失败或超时、HTML 解析失败、
 正文无法提取。该工具依赖 `trafilatura`（已列入项目依赖）。
 
+### 运行本地命令行（runCli）
+
+`runCli` 把「在本机执行一条命令」变成模型可调用的 function call，
+让 Agent 能借助已安装的 CLI（`git`、`python3`、`grep`、`ffmpeg` …）完成任务：
+
+```jsonc
+{
+  "name": "runCli",
+  "parameters": {
+    "command": "git",                     // 必填，程序名或可执行文件路径
+    "args": ["status", "--short"],        // 可选，参数列表（不含程序名本身）
+    "timeout_seconds": 30                 // 可选，默认 30，最大 600
+  }
+}
+```
+
+实现要点：
+
+- **不做 shell 拼接**：程序名与参数被拼装成列表，用 `subprocess.run(..., shell=False)`
+  直接执行；管道 `|`、重定向 `>`、通配符 `*`、`$VAR` 等 shell 语法**不会**被解释，
+  需要时请显式调用 `sh -c` 并把整条命令作为参数传入。这样既避免了命令注入，行为也可预期。
+- **执行目录**：命令的工作目录是 Agent 的工作目录（沙箱根），与 `getCwd` 一致。
+- **回传内容**：返回命令、退出码、stdout 与 stderr 三段文本。**非零退出码不会被视为工具失败**，
+  而是原样返回，让模型结合 stderr 自行判断并决定下一步。
+- **超时**：默认 30 秒，可由模型在 1~600 秒内调整；超时会终止命令，并返回超时前已产生的输出。
+- **输出截断**：stdout / stderr 各保留首尾、最多 20000 字符，中间省略的部分会明确标注
+  （例如「中间省略 12345 个字符，共 67890 字符」），避免大量终端输出挤占上下文。
+- **失败归一化**：只有参数非法、程序不存在（`FileNotFoundError`）或无法启动时才返回错误，
+  由 `ToolRegistryImpl` 统一转成 `ToolOutcome.failed` 回传模型。
+
+> ⚠️ 教学取舍：本阶段**故意不实现**命令白名单、黑名单或审批机制，命令以运行 xAgent
+> 的当前用户权限执行。请仅在受控的教学实验环境中使用；生产场景务必补充权限约束与人工确认。
+
 ## 配置
 
 `config.ini`：
@@ -340,7 +376,7 @@ baidu_qianfan_api_key = bce-v3/ALTAK-xxx/xxx   # 可选：联网搜索工具
 ## 测试与质量
 
 ```bash
-.venv/bin/python -m pytest             # 85 passed
+.venv/bin/python -m pytest             # 128 passed
 .venv/bin/python -m pyright            # 0 errors（使用项目 .venv）
 ```
 
@@ -351,6 +387,7 @@ baidu_qianfan_api_key = bce-v3/ALTAK-xxx/xxx   # 可选：联网搜索工具
 - `test_file_tools.py`：10 个文件工具的完整生命周期与破坏性操作保护
 - `test_search_tools.py`：`[search]` 配置解析、搜索请求体、响应解析与错误归一化
 - `test_fetch_tools.py`：`fetchWeb` 参数校验、curl 调用（非 shell）、正文提取与各类失败归一化
+- `test_run_cli_tools.py`：`runCli` 参数校验、非 shell 参数列表、stdout/stderr/退出码格式、超时与输出截断
 - `test_agent_service.py`：工具循环、历史只存最终问答、最大轮数、流失败、取消、截断
 - `test_sse_decoder.py`：SSE 分块、`[DONE]`、错误载荷、畸形数据
 - `test_config.py`：ini / 环境变量优先级、缺失项与非法值提示

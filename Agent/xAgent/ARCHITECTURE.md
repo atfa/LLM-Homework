@@ -74,7 +74,7 @@ flowchart TB
 | 领域 | `xagent.core.domain` | 标准库 | 不可变数据模型、不变量、纯算法 |
 | 端口 | `xagent.core.ports` | `core.domain` | `LLMClient`、`ToolRegistry` 两个 Protocol |
 | 应用 | `xagent.core.application` | `core.domain`、`core.ports` | 工具循环、会话、事件、运行参数 |
-| 基础设施 | `xagent.core.infrastructure` | `core.domain`、`core.ports` | 配置、SSE 客户端、沙箱、14 个工具 |
+| 基础设施 | `xagent.core.infrastructure` | `core.domain`、`core.ports` | 配置、SSE 客户端、沙箱、15 个工具 |
 | 界面 | `xagent.tui`（未来 `xagent.web` 等） | `core.application`、`core.domain`、`core.ports`、本层 | Textual TUI、展示格式化 |
 | 组合根 | `xagent.core.composition` | core 内部全部 | 依赖装配，决定「用哪个实现」 |
 | 启动 | `xagent.entrypoint` | core + 界面包 | 参数解析、启动 TUI |
@@ -216,6 +216,9 @@ flowchart LR
   重命名目标存在则拒绝（大小写不敏感文件系统上仅改大小写除外）；
 - 只处理纯文本（UTF-8 / GB18030），含 NUL 或解码失败视为二进制；
 - 单次读取 ≤256KB、列目录 ≤200 条、工具结果回传模型 ≤30k 字符（可配）。
+- **`runCli` 是沙箱之外的例外**：它不做路径校验，可按当前用户权限执行任意命令，
+  仅靠「参数列表 + `shell=False`」避免 shell 注入。教学阶段有意保留这一能力，
+  生产环境必须自行补充白名单、资源限制与人工审批。
 
 ---
 
@@ -251,6 +254,7 @@ def count_lines(sandbox: Sandbox, args: Mapping[str, object]) -> str:
 | `file_ops/` | `getCwd` … `renamePath` | 无（受 `Sandbox` 约束） |
 | `web_search/` | `webSearch` | 百度千帆 AI 搜索（HTTP，`requests`） |
 | `web_fetch/` | `fetchWeb` | 本地 `curl`（子进程）+ `trafilatura`（HTML 正文提取） |
+| `run_cli/` | `runCli` | 任意本地 CLI（子进程，参数列表 + `shell=False`） |
 
 `web_search/` 是「需要网络与外部凭证」的工具范例：凭证来自 `[search]` 段
 （`SearchSettings`），由 `catalog.build_tool_registry(workspace, search=...)` 注入；
@@ -260,6 +264,11 @@ def count_lines(sandbox: Sandbox, args: Mapping[str, object]) -> str:
 `web_fetch/` 是「调用本地子进程 + 第三方解析库」的工具范例：用参数列表
 （非 `shell=True`）调用 `curl` 抓取 HTML，再用 `trafilatura` 提取正文并转 Markdown，
 把访问失败、超时、解析失败、正文为空等异常统一转成 `ToolError`，由注册表归一化回传模型。
+
+`run_cli/` 是「把本机 CLI 变成 Agent 工具」的范例：`command` 与 `args` 拼成参数列表，
+以 `shell=False` 执行，把 stdout / stderr / 退出码一并回传模型；超时会终止命令并返回
+已产生的输出，超长输出保留首尾并标注省略量。为让学生看到完整调用闭环，教学阶段
+**刻意不引入**命令白名单 / 黑名单 / 审批，命令以运行 xAgent 的当前用户权限执行。
 
 ### 8.2 新增模型厂商
 
@@ -296,7 +305,7 @@ class MyProviderClient:
 
 | 决策 | 原因 | 代价 |
 | --- | --- | --- |
-| 不引入 LangChain / 框架 | 14 个工具、单循环，框架抽象成本高于收益 | 需要自己维护消息协议 |
+| 不引入 LangChain / 框架 | 15 个工具、单循环，框架抽象成本高于收益 | 需要自己维护消息协议 |
 | 自定义 `ToolRegistry` | 便于测试、错误归一化、线程池执行 | 少量样板代码 |
 | 应用层产出事件而非回调 | UI 可自由组合、测试可断言事件序列 | UI 需要写一个 `async for` |
 | 消息用不可变 dataclass | 防止历史被意外修改，便于并发推理 | 构造时略啰嗦 |

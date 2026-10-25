@@ -1,4 +1,4 @@
-"""工具目录：装配默认工具（时间 2 + 文件 10 + 联网搜索 1 + 网页抓取 1）。"""
+"""工具目录：装配默认工具（时间 2 + 文件 10 + 联网搜索 1 + 网页抓取 1 + 命令行 1）。"""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from ..config import SearchSettings
 from .date_time import datetime_tools
 from .file_ops import Sandbox, file_tools
 from .registry import ToolRegistryImpl
+from .run_cli import run_cli_tools
 from .web_fetch import fetch_web_tools
 from .web_search import QianfanSearchClient, web_search_tools
 
@@ -39,6 +40,7 @@ def build_tool_registry(
         *file_tools(sandbox),
         *web_search_tools(client),
         *fetch_web_tools(),
+        *run_cli_tools(workspace),
     ):
         registry.register(definition, handler)
     return registry
