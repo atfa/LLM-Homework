@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import Literal
 
-from rich.markup import escape
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Vertical, VerticalScroll
+from textual.content import Content
 from textual.widgets import Collapsible, Markdown, Static
 
 from ...core.domain.tools import ToolCall, ToolOutcome
@@ -80,7 +80,9 @@ class ToolActivity(Collapsible):
         self._body = Static(Text("运行中…", style="dim"), classes="tool-body")
         super().__init__(
             self._body,
-            title=f"🔧 {call.name}({summarize_arguments(call.arguments)})",
+            # 用 Content 直接构造字面量标题：工具参数/结果可能包含未闭合的方括号，
+            # 交给 Textual 的 markup 解析会抛 MarkupError。
+            title=Content(f"🔧 {call.name}({summarize_arguments(call.arguments)})"),
             collapsed=True,
             classes="msg tool running",
         )
@@ -90,7 +92,7 @@ class ToolActivity(Collapsible):
         self.add_class("ok" if outcome.ok else "error")
         icon = "✓" if outcome.ok else "✗"
         summary = summarize_arguments(self._call.arguments)
-        self.title = escape(f"{icon} {self._call.name}({summary}) · {elapsed_s * 1000:.0f} ms")
+        self.title = Content(f"{icon} {self._call.name}({summary}) · {elapsed_s * 1000:.0f} ms")
         self._body.update(self._render_body(outcome))
         if not outcome.ok:
             self.collapsed = False

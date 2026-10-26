@@ -12,6 +12,7 @@ from textual.widget import Widget
 
 from tests.fakes import SlowLLM, make_runtime
 from xagent.core.domain.events import StreamCompleted, TextDelta, ToolCallDelta
+from xagent.core.domain.tools import ToolCall, ToolOutcome
 from xagent.tui.app import XAgentApp
 from xagent.tui.help_screen import HelpScreen
 from xagent.tui.widgets import AssistantMessage, NoticeMessage, ToolActivity, UserMessage
@@ -85,6 +86,32 @@ def test_tui_renders_tool_activity(tmp_path: Path) -> None:
             assert card.has_class("ok")
             assert "listDir" in str(card.title)
             assert not card.has_class("running")
+
+    asyncio.run(scenario())
+
+
+def test_tui_tool_card_treats_brackets_as_literal_text(tmp_path: Path) -> None:
+    """工具参数可能含未闭合方括号，不能交给 Textual 的 markup 解析。"""
+    runtime = make_runtime(tmp_path, [])
+
+    async def scenario() -> None:
+        tui = XAgentApp(runtime)
+        async with tui.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            call = ToolCall(id="call_markup", name="listDir", arguments='{"path": "[a=b=120)"}')
+            tui.chat.add_tool_started(call)
+            await pilot.pause()
+            tui.chat.add_tool_finished(call, ToolOutcome.succeeded("结果 [a=b=120) 仍可显示"), 0.1)
+            await pilot.pause()
+
+            cards = chat_widgets(tui, ToolActivity)
+            assert len(cards) == 1
+            card = cards[0]
+            assert isinstance(card, ToolActivity)
+            title = str(card.title)
+            assert "[a=b=120)" in title
+            assert "listDir" in title
+            assert card.has_class("ok")
 
     asyncio.run(scenario())
 

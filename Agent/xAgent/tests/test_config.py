@@ -53,6 +53,15 @@ def test_load_config_reads_all_sections(tmp_path: Path) -> None:
     assert config.theme == "textual-dark"
 
 
+def test_default_max_iterations_is_twenty(tmp_path: Path) -> None:
+    path = write_config(
+        tmp_path,
+        "[llm]\nbase_url = https://example.com/v1\nmodel = test-model\napi_key = sk-test-key\n",
+    )
+    config = load_config(path, workspace=tmp_path)
+    assert config.max_iterations == 20
+
+
 def test_environment_overrides_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = write_config(tmp_path)
     monkeypatch.setenv("XAGENT_BASE_URL", "http://localhost:8000/v1")

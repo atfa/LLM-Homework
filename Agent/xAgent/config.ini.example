@@ -17,7 +17,7 @@ api_key = sk-your-key
 
 [agent]
 # 单轮问答内最多调用模型多少次（防止工具循环失控）
-# max_iterations = 8
+# max_iterations = 20
 # 单个工具结果回传模型的最大字符数
 # max_tool_output_chars = 30000
 # 沙箱工作目录，默认启动时的当前目录

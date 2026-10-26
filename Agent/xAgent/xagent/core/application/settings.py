@@ -23,7 +23,7 @@ class AgentSettings:
     """Agent 引擎参数（不含 API Key 等基础设施配置）。"""
 
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
-    max_iterations: int = 8
+    max_iterations: int = 20
     """单轮问答内允许的最大模型调用次数，防止工具循环失控。"""
 
     max_tool_output_chars: int = 30_000

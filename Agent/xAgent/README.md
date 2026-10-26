@@ -19,7 +19,7 @@
 | UI 只能是终端 `print` | Textual TUI 消费事件流；Web / Desktop 照 `tui/` 参考实现新增即可 |
 | 工具循环 `while True`，可能无限调用 | `max_iterations` 上限 + 可取消 |
 | 工具逻辑与 `os` / 全局变量耦合 | 工具按领域拆分子包（`date_time/`、`file_ops/`），通过 `ToolRegistry` 端口注入 |
-| 无测试 | 165 项测试：领域、沙箱、工具、循环、SSE、配置、分层约束、TUI 无头 |
+| 无测试 | 167 项测试：领域、沙箱、工具、循环、SSE、配置、分层约束、TUI 无头 |
 | 无法替换模型客户端 | `LLMClient` 端口，OpenAI 兼容实现可替换 |
 
 ## 亮点
@@ -148,7 +148,7 @@ Agent/xAgent/
 │       ├── formatting.py       #   跨 UI 复用的展示格式化
 │       ├── help_screen.py      #   帮助弹窗
 │       └── widgets/            #   ChatView / PromptInput / Spinner / Sidebar / StatusBar
-├── tests/                      # 165 项测试，含分层约束与 TUI 冒烟
+├── tests/                      # 167 项测试，含分层约束与 TUI 冒烟
 ├── tools/                      # 开发工具：自动演示 + 预览截图
 └── docs/
     ├── tui-preview.png
@@ -426,7 +426,7 @@ model = gpt-4o-mini
 api_key = sk-...
 
 [agent]
-max_iterations = 8              # 单轮最多模型调用次数
+max_iterations = 20             # 单轮最多模型调用次数
 max_tool_output_chars = 30000  # 工具结果回传模型的上限
 # workspace = .
 # theme = textual-dark
@@ -464,7 +464,7 @@ baidu_qianfan_api_key = bce-v3/ALTAK-xxx/xxx   # 可选：联网搜索工具
 ## 测试与质量
 
 ```bash
-.venv/bin/python -m pytest             # 165 passed
+.venv/bin/python -m pytest             # 167 passed
 .venv/bin/python -m pyright            # 0 errors（使用项目 .venv）
 ```
 

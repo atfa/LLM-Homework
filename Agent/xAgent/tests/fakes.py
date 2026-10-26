@@ -60,7 +60,7 @@ def make_runtime(
     workspace: Path | str,
     scripts: Sequence[EchoScript],
     *,
-    max_iterations: int = 8,
+    max_iterations: int = 20,
     max_tool_output_chars: int = 30_000,
     llm: FakeLLM | None = None,
     skills: SkillCatalog | None = None,

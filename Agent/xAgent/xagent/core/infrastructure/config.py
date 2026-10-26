@@ -55,7 +55,7 @@ class SearchSettings:
 class AppConfig:
     llm: LLMSettings
     workspace: Path
-    max_iterations: int = 8
+    max_iterations: int = 20
     max_tool_output_chars: int = 30_000
     system_prompt: str = ""
     theme: str = "textual-dark"
@@ -236,7 +236,7 @@ def load_config(
     agent_section = parser["agent"] if "agent" in parser else {}
     max_iterations = _int_or(
         _env("XAGENT_MAX_ITERATIONS") or agent_section.get("max_iterations"),
-        8,
+        20,
         label="max_iterations",
     )
     if max_iterations < 1:
