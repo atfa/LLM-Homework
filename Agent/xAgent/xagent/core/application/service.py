@@ -12,12 +12,13 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
+from dataclasses import replace
 
 from ..domain.accumulator import ToolCallAccumulator
 from ..domain.errors import LLMError
 from ..domain.events import StreamFailed, TextDelta, ToolCallDelta
-from ..domain.messages import ChatMessage
+from ..domain.messages import ChatMessage, Role
 from ..domain.tools import ToolCall, ToolOutcome
 from ..ports.llm import LLMClient
 from ..ports.tools import ToolRegistry
@@ -39,10 +40,20 @@ from .settings import AgentSettings
 class AgentService:
     """无 UI 依赖的 Agent 用例服务。"""
 
-    def __init__(self, llm: LLMClient, tools: ToolRegistry, settings: AgentSettings | None = None) -> None:
+    def __init__(
+        self,
+        llm: LLMClient,
+        tools: ToolRegistry,
+        settings: AgentSettings | None = None,
+        *,
+        system_prompt_provider: Callable[[], str] | None = None,
+    ) -> None:
         self._llm = llm
         self._tools = tools
         self._settings = settings or AgentSettings()
+        # 可选：每轮/每次模型调用前重新获取 System Prompt，用于 createSkill 等
+        # 运行期会改变可用工具或技能列表的场景。
+        self._system_prompt_provider = system_prompt_provider
 
     @property
     def settings(self) -> AgentSettings:
@@ -71,6 +82,7 @@ class AgentService:
 
         try:
             for iteration in range(1, self._settings.max_iterations + 1):
+                working = self._sync_system_prompt(session, working)
                 yield IterationStarted(iteration=iteration, max_iterations=self._settings.max_iterations)
 
                 accumulator = ToolCallAccumulator()
@@ -148,6 +160,28 @@ class AgentService:
             return content
         omitted = len(content) - limit
         return f"{content[:limit]}\n...（工具结果过长，已截断 {omitted} 个字符）"
+
+    def _sync_system_prompt(self, session: ChatSession, working: list[ChatMessage]) -> list[ChatMessage]:
+        """刷新 System Prompt，使运行期新增的 Skill 在下一轮模型调用中立即可见。"""
+        provider = self._system_prompt_provider
+        if provider is None:
+            return working
+
+        prompt = provider()
+        if prompt == session.conversation.system_prompt:
+            return working
+
+        session.conversation.system_prompt = prompt
+        self._settings = replace(self._settings, system_prompt=prompt)
+
+        if working and working[0].role is Role.SYSTEM:
+            if prompt.strip():
+                working[0] = ChatMessage.system(prompt)
+            else:
+                del working[0]
+        elif prompt.strip():
+            working.insert(0, ChatMessage.system(prompt))
+        return working
 
     async def aclose(self) -> None:
         close = getattr(self._llm, "aclose", None)

@@ -69,13 +69,22 @@ def make_runtime(
     catalog = skills if skills is not None else SkillCatalog.discover(workspace)
     registry = build_tool_registry(workspace, skills=catalog)
     client = llm or FakeLLM(scripts)
-    prompt = compose_system_prompt(system_prompt, catalog)
+
+    def render_system_prompt() -> str:
+        return compose_system_prompt(system_prompt, catalog)
+
+    prompt = render_system_prompt()
     settings = AgentSettings(
         system_prompt=prompt,
         max_iterations=max_iterations,
         max_tool_output_chars=max_tool_output_chars,
     )
-    agent = AgentService(llm=client, tools=registry, settings=settings)
+    agent = AgentService(
+        llm=client,
+        tools=registry,
+        settings=settings,
+        system_prompt_provider=render_system_prompt,
+    )
     session = ChatSession.create(prompt)
     info = RuntimeInfo(
         app_name="xAgent",

@@ -121,6 +121,13 @@ class SkillCatalog:
     def get(self, name: str) -> Skill | None:
         return self._by_name.get(name)
 
+    def register(self, skill: Skill) -> None:
+        """注册运行期新建的 Skill（createSkill 使用）。"""
+        if skill.name in self._by_name:
+            raise ValueError(f"Skill 重复注册：{skill.name}")
+        self._skills = (*self._skills, skill)
+        self._by_name[skill.name] = skill
+
     @property
     def skills(self) -> tuple[Skill, ...]:
         return self._skills

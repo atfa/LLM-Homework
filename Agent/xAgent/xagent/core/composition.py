@@ -42,16 +42,24 @@ def build_runtime(
         timeout_s=app_config.llm.timeout_s,
         temperature=app_config.llm.temperature,
     )
-    system_prompt = compose_system_prompt(
-        app_config.system_prompt or DEFAULT_SYSTEM_PROMPT,
-        skills,
-    )
+    base_prompt = app_config.system_prompt or DEFAULT_SYSTEM_PROMPT
+
+    def render_system_prompt() -> str:
+        # createSkill 会向同一个 SkillCatalog 注册新技能，下一次模型调用前重新渲染。
+        return compose_system_prompt(base_prompt, skills)
+
+    system_prompt = render_system_prompt()
     settings = AgentSettings(
         system_prompt=system_prompt,
         max_iterations=app_config.max_iterations,
         max_tool_output_chars=app_config.max_tool_output_chars,
     )
-    agent = AgentService(llm=llm, tools=registry, settings=settings)
+    agent = AgentService(
+        llm=llm,
+        tools=registry,
+        settings=settings,
+        system_prompt_provider=render_system_prompt,
+    )
     session = ChatSession.create(system_prompt)
 
     info = RuntimeInfo(

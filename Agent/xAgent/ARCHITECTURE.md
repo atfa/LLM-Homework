@@ -74,7 +74,7 @@ flowchart TB
 | 领域 | `xagent.core.domain` | 标准库 | 不可变数据模型、不变量、纯算法 |
 | 端口 | `xagent.core.ports` | `core.domain` | `LLMClient`、`ToolRegistry` 两个 Protocol |
 | 应用 | `xagent.core.application` | `core.domain`、`core.ports` | 工具循环、会话、事件、运行参数 |
-| 基础设施 | `xagent.core.infrastructure` | `core.domain`、`core.ports` | 配置、SSE 客户端、沙箱、16 个工具 |
+| 基础设施 | `xagent.core.infrastructure` | `core.domain`、`core.ports` | 配置、SSE 客户端、沙箱、17 个工具 |
 | 界面 | `xagent.tui`（未来 `xagent.web` 等） | `core.application`、`core.domain`、`core.ports`、本层 | Textual TUI、展示格式化 |
 | 组合根 | `xagent.core.composition` | core 内部全部 | 依赖装配，决定「用哪个实现」 |
 | 启动 | `xagent.entrypoint` | core + 界面包 | 参数解析、启动 TUI |
@@ -255,7 +255,7 @@ def count_lines(sandbox: Sandbox, args: Mapping[str, object]) -> str:
 | `web_search/` | `webSearch` | 百度千帆 AI 搜索（HTTP，`requests`） |
 | `web_fetch/` | `fetchWeb` | 本地 `curl`（子进程）+ `trafilatura`（HTML 正文提取） |
 | `run_cli/` | `runCli` | 任意本地 CLI（子进程，参数列表 + `shell=False`） |
-| `infrastructure/skills/` | `loadSkill` | 无（读取范围限制在当前 Skill 目录） |
+| `infrastructure/skills/` | `loadSkill`、`createSkill` | 无（读取范围限制在当前 Skill 目录） |
 
 `web_search/` 是「需要网络与外部凭证」的工具范例：凭证来自 `[search]` 段
 （`SearchSettings`），由 `catalog.build_tool_registry(workspace, search=...)` 注入；
@@ -281,6 +281,13 @@ def count_lines(sandbox: Sandbox, args: Mapping[str, object]) -> str:
 `loadSkill` 的路径解析顺序是「Skill 目录相对路径 → 项目相对路径 → 绝对路径」，
 只给文件名时在 Skill 目录内递归查找；多个同名文件会返回候选路径。所有最终路径
 都经过 `realpath` 校验，必须仍在当前 Skill 目录内，越界（含软链接）直接拒绝。
+
+`createSkill` 是同一子包里的写入侧：`creator.py` 校验并规范化名称，生成带
+`name` / `description` Frontmatter 的 `SKILL.md`，以独占方式创建
+`.agents/skills/<name>/`（已存在则报错，绝不覆盖），成功后调用
+`SkillCatalog.register()` 把新 Skill 加入运行期目录。`AgentService` 接受可选的
+`system_prompt_provider`，在每次模型调用前重新渲染 System Prompt，因此新建的
+Skill 在当前会话的下一轮迭代里就能被发现；辅助文件仍由 fileOps 工具创建。
 
 ### 8.2 新增模型厂商
 
@@ -317,7 +324,7 @@ class MyProviderClient:
 
 | 决策 | 原因 | 代价 |
 | --- | --- | --- |
-| 不引入 LangChain / 框架 | 16 个工具、单循环，框架抽象成本高于收益 | 需要自己维护消息协议 |
+| 不引入 LangChain / 框架 | 17 个工具、单循环，框架抽象成本高于收益 | 需要自己维护消息协议 |
 | 自定义 `ToolRegistry` | 便于测试、错误归一化、线程池执行 | 少量样板代码 |
 | 应用层产出事件而非回调 | UI 可自由组合、测试可断言事件序列 | UI 需要写一个 `async for` |
 | 消息用不可变 dataclass | 防止历史被意外修改，便于并发推理 | 构造时略啰嗦 |
