@@ -1,4 +1,5 @@
-"""工具实现：按领域拆分的工具子包（date_time / file_ops / web_search / web_fetch / run_cli）+ 注册表装配。"""
+"""工具实现：按领域拆分的工具子包（date_time / file_ops / web_search / web_fetch / run_cli）
++ 注册表装配；``loadSkill`` 由 ``infrastructure/skills`` 提供。"""
 
 from .catalog import build_tool_registry
 from .file_ops import Sandbox

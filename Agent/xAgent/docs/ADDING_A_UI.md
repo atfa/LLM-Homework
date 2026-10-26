@@ -1,7 +1,7 @@
 # 新增界面（Web / Desktop）
 
 xAgent 的 core 不依赖 Textual。任何界面只要满足下面的契约，就可以复用
-`AgentService`、15 个工具、流式事件与会话管理。
+`AgentService`、16 个工具、流式事件与会话管理。
 
 ## 1. 契约
 

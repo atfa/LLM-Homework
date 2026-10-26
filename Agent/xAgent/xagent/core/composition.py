@@ -15,6 +15,7 @@ from .application.session import ChatSession
 from .application.settings import DEFAULT_SYSTEM_PROMPT, AgentSettings
 from .infrastructure.config import AppConfig, load_config
 from .infrastructure.llm.openai_compatible import OpenAICompatibleClient
+from .infrastructure.skills import SkillCatalog, compose_system_prompt
 from .infrastructure.tools.catalog import build_tool_registry
 
 
@@ -23,14 +24,17 @@ def build_runtime(
     *,
     config_path: str | Path | None = None,
     workspace: str | Path | None = None,
+    project_root: str | Path | None = None,
 ) -> AgentRuntime:
     """装配并返回可运行的 :class:`AgentRuntime`。
 
     传入已加载的 ``config`` 可跳过配置读取（测试/嵌入场景）。
+    ``project_root`` 用于发现 ``.agents/skills/``，默认是程序启动时的工作目录。
     """
     app_config = config or load_config(config_path=config_path, workspace=workspace)
 
-    registry = build_tool_registry(app_config.workspace, search=app_config.search)
+    skills = SkillCatalog.discover(project_root)
+    registry = build_tool_registry(app_config.workspace, search=app_config.search, skills=skills)
     llm = OpenAICompatibleClient(
         base_url=app_config.llm.base_url,
         api_key=app_config.llm.api_key,
@@ -38,13 +42,17 @@ def build_runtime(
         timeout_s=app_config.llm.timeout_s,
         temperature=app_config.llm.temperature,
     )
+    system_prompt = compose_system_prompt(
+        app_config.system_prompt or DEFAULT_SYSTEM_PROMPT,
+        skills,
+    )
     settings = AgentSettings(
-        system_prompt=app_config.system_prompt or DEFAULT_SYSTEM_PROMPT,
+        system_prompt=system_prompt,
         max_iterations=app_config.max_iterations,
         max_tool_output_chars=app_config.max_tool_output_chars,
     )
     agent = AgentService(llm=llm, tools=registry, settings=settings)
-    session = ChatSession.create(settings.system_prompt)
+    session = ChatSession.create(system_prompt)
 
     info = RuntimeInfo(
         app_name="xAgent",

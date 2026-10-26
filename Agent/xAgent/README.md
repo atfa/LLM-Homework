@@ -4,8 +4,9 @@
 > 12 个本地工具、路径沙箱与工具调用循环语义，同时把 **core 与 UI 彻底分离**，
 > 提供 Textual TUI，并为 Web / Desktop 等界面预留稳定契约。
 > 后续新增了第 13 个工具 `webSearch`（百度千帆 AI 搜索）、
-> 第 14 个工具 `fetchWeb`（网页正文提取）
-> 与第 15 个工具 `runCli`（调用本机任意命令行程序）。
+> 第 14 个工具 `fetchWeb`（网页正文提取）、
+> 第 15 个工具 `runCli`（调用本机任意命令行程序），
+> 以及第 16 个工具 `loadSkill`（按需加载 Agent Skills）。
 
 ![xAgent TUI](docs/tui-preview.png)
 
@@ -17,7 +18,7 @@
 | UI 只能是终端 `print` | Textual TUI 消费事件流；Web / Desktop 照 `tui/` 参考实现新增即可 |
 | 工具循环 `while True`，可能无限调用 | `max_iterations` 上限 + 可取消 |
 | 工具逻辑与 `os` / 全局变量耦合 | 工具按领域拆分子包（`date_time/`、`file_ops/`），通过 `ToolRegistry` 端口注入 |
-| 无测试 | 128 项测试：领域、沙箱、工具、循环、SSE、配置、分层约束、TUI 无头 |
+| 无测试 | 149 项测试：领域、沙箱、工具、循环、SSE、配置、分层约束、TUI 无头 |
 | 无法替换模型客户端 | `LLMClient` 端口，OpenAI 兼容实现可替换 |
 
 ## 亮点
@@ -66,7 +67,7 @@ xagent                                            # pip install -e . 后的命�
 │ ChatView                         │ Sidebar                   │
 │  · 用户消息                      │  · 模型 / 接口 / 目录     │
 │  · 流式 Markdown 回答            │  · 会话 id / 轮次 / 消息  │
-│  · 可展开的工具卡片（参数/结果） │  · 15 个工具与说明        │
+│  · 可展开的工具卡片（参数/结果） │  · 16 个工具与说明        │
 │  · 错误 / 中断提示               │                           │
 ├──────────────────────────────────┴───────────────────────────┤
 │ Input：Enter 发送，Esc 中断                                  │
@@ -123,8 +124,9 @@ Agent/xAgent/
 │   │       ├── config.py       #     ini + 环境变量
 │   │       ├── llm/            #     SSE 解析 + 线程桥
 │   │       │   └── openai_compatible.py
+│   │       ├── skills/         #     .agents/skills 发现 + loadSkill 加载器
 │   │       └── tools/          #     注册表 + 按领域拆分的工具子包
-│   │           ├── catalog.py  #       装配 15 个工具
+│   │           ├── catalog.py  #       装配 16 个工具
 │   │           ├── registry.py #       参数解析、线程执行、错误归一化
 │   │           ├── date_time/  #       getDate / isLeapYear
 │   │           ├── file_ops/   #       Sandbox + 10 个文件工具
@@ -136,7 +138,7 @@ Agent/xAgent/
 │       ├── formatting.py       #   跨 UI 复用的展示格式化
 │       ├── help_screen.py      #   帮助弹窗
 │       └── widgets/            #   ChatView / Sidebar / StatusBar
-├── tests/                      # 128 项测试，含分层约束与 TUI 冒烟
+├── tests/                      # 149 项测试，含分层约束与 TUI 冒烟
 ├── tools/                      # 开发工具：自动演示 + 预览截图
 └── docs/
     ├── tui-preview.png
@@ -155,7 +157,7 @@ flowchart TB
     APP["core.application · AgentService"]
     PORTS["core.ports · LLMClient / ToolRegistry"]
     DOM["core.domain · 消息 / 工具 / 事件 / 会话"]
-    INFRA["core.infrastructure · OpenAI 客户端 / 15 工具 / 配置"]
+    INFRA["core.infrastructure · OpenAI 客户端 / 16 工具 / 配置"]
 
     TUI --> APP
     FUTURE --> APP
@@ -197,7 +199,7 @@ TUI 不接触 SSE、HTTP 或工具实现，只消费（`tui/` 是参考实现，
 
 取消不以事件表达：`run_turn` 被取消时直接抛 `CancelledError`，由 UI 决定提示方式。
 
-## 工具（15 个）
+## 工具（16 个）
 
 | 工具 | 说明 |
 | --- | --- |
@@ -216,9 +218,62 @@ TUI 不接触 SSE、HTTP 或工具实现，只消费（`tui/` 是参考实现，
 | `webSearch` | 联网搜索（百度千帆 AI 搜索），返回标题 / 链接 / 日期 / 摘要 |
 | `fetchWeb` | 抓取网页并提取正文为 Markdown（curl + trafilatura） |
 | `runCli` | 调用本机任意命令行程序，返回 stdout / stderr / 退出码（`subprocess`，非 shell） |
+| `loadSkill` | 按需加载 `.agents/skills/` 中某个 Skill 的 `SKILL.md` 全文或附加文件 |
 
 沙箱规则：所有路径先 `expanduser` 再 `realpath`（解析符号链接），必须落在工作目录内；
 `../`、绝对路径越界、指向外部的软链接都会被拒绝。二进制文件与超大文件拒绝读取。
+
+### Agent Skills（loadSkill）
+
+xAgent 在初始化时以**程序启动时的工作目录**为项目根，扫描
+`.agents/skills/<skill-name>/SKILL.md`：
+
+```text
+<project-root>/
+└── .agents/
+    └── skills/
+        └── pdf/
+            ├── SKILL.md          # YAML Frontmatter + 正文
+            ├── references/
+            │   └── forms.md
+            └── scripts/
+                └── extract.py
+```
+
+`SKILL.md` 开头必须是 Frontmatter，`name` 与 `description` 为必需字段：
+
+```markdown
+---
+name: pdf
+description: 提取 PDF 文本、填写表单与合并文档
+---
+
+# PDF 处理
+
+1. 先用 scripts/extract.py 提取文本……
+```
+
+初始化阶段**只读取 Frontmatter**，把 `name` / `description` 追加到 System Prompt：
+
+```text
+You have access to the following skills:
+
+- `pdf`: 提取 PDF 文本、填写表单与合并文档
+
+Use the `loadSkill` tool to load the full instructions of a skill when needed.
+You can also load additional files referenced by a skill.
+```
+
+完整正文只有模型调用 `loadSkill` 时才进入上下文：
+
+```jsonc
+{ "name": "pdf" }                                      // 返回 SKILL.md 全文
+{ "name": "pdf", "filename": "references/forms.md" }    // 只返回附加文件
+```
+
+`filename` 支持 Skill 目录相对路径、项目相对路径与绝对路径；只给文件名时会在
+该 Skill 目录内递归查找，如果同名文件不唯一，会返回候选路径让模型选择。
+所有读取都被限制在当前 Skill 目录内，`../`、其它 Skill 或外部软链接都会被拒绝。
 
 ### 联网搜索（webSearch）
 
@@ -376,7 +431,7 @@ baidu_qianfan_api_key = bce-v3/ALTAK-xxx/xxx   # 可选：联网搜索工具
 ## 测试与质量
 
 ```bash
-.venv/bin/python -m pytest             # 128 passed
+.venv/bin/python -m pytest             # 149 passed
 .venv/bin/python -m pyright            # 0 errors（使用项目 .venv）
 ```
 
@@ -388,6 +443,7 @@ baidu_qianfan_api_key = bce-v3/ALTAK-xxx/xxx   # 可选：联网搜索工具
 - `test_search_tools.py`：`[search]` 配置解析、搜索请求体、响应解析与错误归一化
 - `test_fetch_tools.py`：`fetchWeb` 参数校验、curl 调用（非 shell）、正文提取与各类失败归一化
 - `test_run_cli_tools.py`：`runCli` 参数校验、非 shell 参数列表、stdout/stderr/退出码格式、超时与输出截断
+- `test_skills.py`：Skill 发现、System Prompt 注入、`loadSkill` 路径解析、同名候选与目录越界保护
 - `test_agent_service.py`：工具循环、历史只存最终问答、最大轮数、流失败、取消、截断
 - `test_sse_decoder.py`：SSE 分块、`[DONE]`、错误载荷、畸形数据
 - `test_config.py`：ini / 环境变量优先级、缺失项与非法值提示

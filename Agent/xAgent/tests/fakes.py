@@ -13,6 +13,7 @@ from xagent.core.application.settings import AgentSettings
 from xagent.core.domain.events import LLMStreamEvent, StreamCompleted, TextDelta
 from xagent.core.domain.messages import ChatMessage
 from xagent.core.domain.tools import ToolDefinition
+from xagent.core.infrastructure.skills import SkillCatalog, compose_system_prompt
 from xagent.core.infrastructure.tools.catalog import build_tool_registry
 
 EchoScript = Sequence[LLMStreamEvent]
@@ -62,16 +63,20 @@ def make_runtime(
     max_iterations: int = 8,
     max_tool_output_chars: int = 30_000,
     llm: FakeLLM | None = None,
+    skills: SkillCatalog | None = None,
+    system_prompt: str = "你是测试助手",
 ) -> AgentRuntime:
-    registry = build_tool_registry(workspace)
+    catalog = skills if skills is not None else SkillCatalog.discover(workspace)
+    registry = build_tool_registry(workspace, skills=catalog)
     client = llm or FakeLLM(scripts)
+    prompt = compose_system_prompt(system_prompt, catalog)
     settings = AgentSettings(
-        system_prompt="你是测试助手",
+        system_prompt=prompt,
         max_iterations=max_iterations,
         max_tool_output_chars=max_tool_output_chars,
     )
     agent = AgentService(llm=client, tools=registry, settings=settings)
-    session = ChatSession.create(settings.system_prompt)
+    session = ChatSession.create(prompt)
     info = RuntimeInfo(
         app_name="xAgent",
         version="test",
