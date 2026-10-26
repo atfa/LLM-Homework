@@ -10,7 +10,8 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "requests>=2.31",
-    "textual>=1.0",
+    # 8.2.8 修复了 CJK 输入法上屏时插入 "\u4f60\u597d" 一类转义文本的问题
+    "textual>=8.2.8",
     "rich>=13",
     "trafilatura>=1.6",
 ]

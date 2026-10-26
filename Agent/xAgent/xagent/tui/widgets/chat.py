@@ -120,7 +120,7 @@ class WelcomeMessage(Static):
         body.append("xAgent", style="bold")
         body.append(f"  ·  {tool_count} 个工具  ·  {model}\n", style="dim")
         body.append(f"工作目录  {workspace}\n", style="dim")
-        body.append("Enter 发送   /help 命令   Esc 中断生成   Ctrl+B 侧栏   Ctrl+N 新会话")
+        body.append("Enter 发送   Shift+Enter 换行   /help 命令   Esc 中断生成   Ctrl+B 侧栏   Ctrl+N 新会话")
         super().__init__(body, classes="welcome")
 
 

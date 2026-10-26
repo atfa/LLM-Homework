@@ -19,7 +19,7 @@
 | UI 只能是终端 `print` | Textual TUI 消费事件流；Web / Desktop 照 `tui/` 参考实现新增即可 |
 | 工具循环 `while True`，可能无限调用 | `max_iterations` 上限 + 可取消 |
 | 工具逻辑与 `os` / 全局变量耦合 | 工具按领域拆分子包（`date_time/`、`file_ops/`），通过 `ToolRegistry` 端口注入 |
-| 无测试 | 160 项测试：领域、沙箱、工具、循环、SSE、配置、分层约束、TUI 无头 |
+| 无测试 | 165 项测试：领域、沙箱、工具、循环、SSE、配置、分层约束、TUI 无头 |
 | 无法替换模型客户端 | `LLMClient` 端口，OpenAI 兼容实现可替换 |
 
 ## 亮点
@@ -27,6 +27,8 @@
 - **core 零 UI 依赖**：`AgentService` 只产出 `AgentEvent` 事件流，`tui/` 只是消费者之一；新增 Web / Desktop 前端时 core 一行不改。
 - **依赖倒置**：应用层只面向 `LLMClient`、`ToolRegistry` 两个 Protocol 编程。
 - **流式体验**：Markdown 增量渲染（80ms 节流）、工具调用卡片、状态栏、侧栏、自动滚动。
+- **多行输入**：`Enter` 发送，`Shift+Enter` 换行；粘贴多行文本不会被截断，输入框随内容自动增高。
+- **等待反馈**：等待模型回复时，输入框左侧显示旋转动画，`Esc` 随时中断。
 - **可中断**：`Esc` 取消当前轮；未完成的轮次不会写入历史。
 - **安全默认**：`realpath` 沙箱、非空目录递归确认、工具输出回传截断、最大模型调用轮数。
 - **可验证的架构**：`tests/test_layering.py` 把「依赖只能由外向内」变成 CI 断言。
@@ -71,7 +73,7 @@ xagent                                            # pip install -e . 后的命�
 │  · 可展开的工具卡片（参数/结果） │  · 17 个工具与说明        │
 │  · 错误 / 中断提示               │                           │
 ├──────────────────────────────────┴───────────────────────────┤
-│ Input：Enter 发送，Esc 中断                                  │
+│ Input：Enter 发送，Shift+Enter 换行；等待左侧转圈动画        │
 ├──────────────────────────────────────────────────────────────┤
 │ StatusBar：● 就绪 │ 模型 │ 工具次数 │ 耗时 │ Esc 中断        │
 ├──────────────────────────────────────────────────────────────┤
@@ -84,12 +86,18 @@ xagent                                            # pip install -e . 后的命�
 | 按键 | 作用 |
 | --- | --- |
 | `Enter` | 发送（输入框中） |
+| `Shift+Enter` | 换行，支持输入 / 粘贴多行文本（旧终端可用 `Ctrl+J`） |
 | `Esc` | 中断当前生成 |
 | `Ctrl+Q` / `Ctrl+C` | 退出 |
 | `Ctrl+L` | 清屏（保留历史） |
 | `Ctrl+N` | 新会话（重置历史） |
 | `Ctrl+B` | 显示 / 隐藏侧栏 |
 | `F1` | 帮助 |
+
+> 中文输入法乱码有两个来源：Textual 8.2.7 的 IME 上屏缺陷（依赖下限已提升到
+> `textual>=8.2.8`），以及 Textual 8.x 解析器只缓冲 32 字符的 CSI-u 序列限制
+> （快速上屏时一个事件可能包含多个汉字）。后者已由 `xagent/tui/compat.py`
+> 将上限放宽到 512 字符。
 
 斜杠命令：`/help`、`/clear`、`/new`、`/tools`、`/cwd`、`/model`、`/quit`。
 
@@ -136,10 +144,11 @@ Agent/xAgent/
 │   │           └── run_cli/    #       runCli（subprocess 调用本机 CLI）
 │   └── tui/                    # Textual 界面（core 的一个消费者，可整体替换）
 │       ├── app.py              #   App / 事件渲染 / 斜杠命令
+│       ├── compat.py           #   Textual 输入兼容补丁（长 CSI-u / IME 序列）
 │       ├── formatting.py       #   跨 UI 复用的展示格式化
 │       ├── help_screen.py      #   帮助弹窗
-│       └── widgets/            #   ChatView / Sidebar / StatusBar
-├── tests/                      # 160 项测试，含分层约束与 TUI 冒烟
+│       └── widgets/            #   ChatView / PromptInput / Spinner / Sidebar / StatusBar
+├── tests/                      # 165 项测试，含分层约束与 TUI 冒烟
 ├── tools/                      # 开发工具：自动演示 + 预览截图
 └── docs/
     ├── tui-preview.png
@@ -455,7 +464,7 @@ baidu_qianfan_api_key = bce-v3/ALTAK-xxx/xxx   # 可选：联网搜索工具
 ## 测试与质量
 
 ```bash
-.venv/bin/python -m pytest             # 160 passed
+.venv/bin/python -m pytest             # 165 passed
 .venv/bin/python -m pyright            # 0 errors（使用项目 .venv）
 ```
 
@@ -473,7 +482,7 @@ baidu_qianfan_api_key = bce-v3/ALTAK-xxx/xxx   # 可选：联网搜索工具
 - `test_sse_decoder.py`：SSE 分块、`[DONE]`、错误载荷、畸形数据
 - `test_config.py`：ini / 环境变量优先级、缺失项与非法值提示
 - `test_layering.py`：AST 依赖方向断言（tui 只依赖 core 契约、core 不依赖 tui、core 内部由外向内）+ 领域层纯净性
-- `test_tui.py`：无头 TUI 渲染、工具卡片、Esc 取消、帮助、斜杠命令、新会话
+- `test_tui.py`：无头 TUI 渲染、多行输入 / 粘贴、中文 IME 长序列、等待动画、工具卡片、Esc 取消、帮助、斜杠命令、新会话
 
 开发辅助（需要 `pyte` + `Pillow`）：
 

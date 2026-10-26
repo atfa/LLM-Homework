@@ -11,7 +11,8 @@ from textual.widgets import Markdown, Static
 HELP_MARKDOWN = """
 ## 使用方式
 
-- 在底部输入框输入问题，`Enter` 发送。
+- 在底部输入框输入问题，`Enter` 发送，`Shift+Enter` 换行（旧终端可用 `Ctrl+J`）；支持粘贴多行文本。
+- 输入框左侧的旋转图标表示正在等待模型回复，`Esc` 可中断。
 - 模型需要查看/修改文件时会自动调用工具，工具卡片可点击展开。
 - `Esc` 中断当前生成；已完成的问答才会写入历史。
 
@@ -31,6 +32,9 @@ HELP_MARKDOWN = """
 
 | 按键 | 作用 |
 | --- | --- |
+| `Enter` | 发送 |
+| `Shift+Enter` | 换行（多行输入） |
+| `Esc` | 中断生成 |
 | `Ctrl+Q` | 退出 |
 | `Ctrl+L` | 清屏 |
 | `Ctrl+N` | 新会话 |

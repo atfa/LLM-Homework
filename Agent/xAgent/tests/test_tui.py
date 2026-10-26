@@ -6,6 +6,8 @@ import asyncio
 from collections.abc import Callable
 from pathlib import Path
 
+from textual._xterm_parser import XTermParser
+from textual.events import Key, Paste
 from textual.widget import Widget
 
 from tests.fakes import SlowLLM, make_runtime
@@ -104,6 +106,96 @@ def test_tui_escape_cancels_generation(tmp_path: Path) -> None:
             assert runtime.session.turn_count == 0
             notices = [notice for notice in chat_widgets(tui, NoticeMessage) if isinstance(notice, NoticeMessage)]
             assert any("已中断" in notice.message for notice in notices)
+
+    asyncio.run(scenario())
+
+
+def test_tui_shift_enter_supports_multiline_input(tmp_path: Path) -> None:
+    runtime = make_runtime(tmp_path, [[TextDelta("收到"), StreamCompleted("stop")]])
+
+    async def scenario() -> None:
+        tui = XAgentApp(runtime)
+        async with tui.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            await pilot.press(*"第一行")
+            await pilot.press("shift+enter")
+            await pilot.press(*"第二行")
+            await pilot.pause()
+
+            assert tui.prompt_input.value == "第一行\n第二行"
+            assert runtime.session.turn_count == 0
+            assert tui.prompt_input.styles.height.value == 2
+
+            await pilot.press("enter")
+            await wait_until(lambda: runtime.session.turn_count == 1)
+            await pilot.pause()
+            assert runtime.session.conversation.history()[-2].content == "第一行\n第二行"
+
+    asyncio.run(scenario())
+
+
+def test_tui_accepts_chinese_input(tmp_path: Path) -> None:
+    runtime = make_runtime(tmp_path, [[TextDelta("你好"), StreamCompleted("stop")]])
+
+    async def scenario() -> None:
+        tui = XAgentApp(runtime)
+        async with tui.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            await pilot.press("你", "好")
+            await pilot.pause()
+            assert tui.prompt_input.value == "你好"
+
+            await pilot.press("enter")
+            await wait_until(lambda: runtime.session.turn_count == 1)
+            await pilot.pause()
+            assert runtime.session.conversation.history()[-2].content == "你好"
+
+    asyncio.run(scenario())
+
+
+def test_long_ime_sequence_is_parsed_as_text() -> None:
+    """快速输入中文时，CSI-u 序列可能超过 Textual 默认的 32 字符上限。"""
+
+    sequence = "\x1b[32;;25104:37117:19996:36719:22030:85:78u"
+    events = list(XTermParser().feed(sequence))
+    text = "".join(event.character or "" for event in events if isinstance(event, Key))
+    assert text == "成都东软嘎UN"
+
+
+def test_tui_paste_keeps_multiple_lines(tmp_path: Path) -> None:
+    runtime = make_runtime(tmp_path, [[TextDelta("ok"), StreamCompleted("stop")]])
+
+    async def scenario() -> None:
+        tui = XAgentApp(runtime)
+        async with tui.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            tui.post_message(Paste("粘贴第一行\n粘贴第二行"))
+            await pilot.pause()
+
+            assert tui.prompt_input.value == "粘贴第一行\n粘贴第二行"
+            assert tui.prompt_input.styles.height.value == 2
+
+    asyncio.run(scenario())
+
+
+def test_tui_spinner_runs_while_waiting(tmp_path: Path) -> None:
+    runtime = make_runtime(tmp_path, [], llm=SlowLLM([]))
+
+    async def scenario() -> None:
+        tui = XAgentApp(runtime)
+        async with tui.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            assert not tui.spinner.active
+
+            tui.prompt_input.value = "hi"
+            await pilot.press("enter")
+            await wait_until(lambda: tui.spinner.active)
+            assert tui.spinner.has_class("active")
+
+            await pilot.press("escape")
+            await wait_until(lambda: not tui.spinner.active)
+            assert not tui.spinner.has_class("active")
+            assert tui.status.state == "idle"
 
     asyncio.run(scenario())
 

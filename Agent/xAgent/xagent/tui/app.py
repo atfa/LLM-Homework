@@ -8,7 +8,7 @@ from pathlib import Path
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
-from textual.widgets import Footer, Header, Input
+from textual.widgets import Footer, Header
 from textual.worker import Worker
 
 from ..core.application.events import (
@@ -23,9 +23,9 @@ from ..core.application.events import (
 )
 from ..core.application.runtime import AgentRuntime
 from .help_screen import HelpScreen
-from .widgets import ChatView, Sidebar, StatusBar
+from .widgets import ChatView, PromptInput, Sidebar, Spinner, StatusBar
 
-HELP_HINT = " 输入问题后 Enter 发送；/help 查看命令；Esc 中断生成"
+HELP_HINT = " Enter 发送 · Shift+Enter 换行 · /help 命令 · Esc 中断生成"
 
 
 class XAgentApp(App[None]):
@@ -36,7 +36,7 @@ class XAgentApp(App[None]):
     TITLE = "xAgent"
     BINDINGS = [
         Binding("ctrl+q", "quit", "退出"),
-        Binding("ctrl+c", "quit", "退出", show=False),
+        Binding("ctrl+c", "quit", "退出", show=False, priority=True),
         Binding("ctrl+l", "clear_chat", "清屏"),
         Binding("ctrl+n", "new_session", "新会话"),
         Binding("ctrl+b", "toggle_sidebar", "侧栏"),
@@ -65,8 +65,12 @@ class XAgentApp(App[None]):
         return self.query_one("#status", StatusBar)
 
     @property
-    def prompt_input(self) -> Input:
-        return self.query_one("#prompt", Input)
+    def prompt_input(self) -> PromptInput:
+        return self.query_one("#prompt", PromptInput)
+
+    @property
+    def spinner(self) -> Spinner:
+        return self.query_one("#spinner", Spinner)
 
     # ---- 生命周期 -----------------------------------------------------
     def compose(self) -> ComposeResult:
@@ -75,7 +79,9 @@ class XAgentApp(App[None]):
         with Horizontal(id="body"):
             yield ChatView(id="chat")
             yield Sidebar(info, self.runtime.agent.settings)
-        yield Input(placeholder=HELP_HINT, id="prompt")
+        with Horizontal(id="prompt-row"):
+            yield Spinner()
+            yield PromptInput(placeholder=HELP_HINT)
         yield StatusBar(info.model)
         yield Footer()
 
@@ -87,16 +93,17 @@ class XAgentApp(App[None]):
         self.prompt_input.focus()
 
     # ---- 输入处理 -----------------------------------------------------
-    def on_input_submitted(self, event: Input.Submitted) -> None:
+    def on_prompt_input_submitted(self, event: PromptInput.Submitted) -> None:
         text = event.value.strip()
-        event.input.clear()
         if not text:
-            return
-        if text.startswith("/"):
-            self._run_command(text)
+            event.input.clear()
             return
         if self._busy:
-            self.chat.add_notice("上一轮仍在生成中，按 Esc 中断后再发送。", "warning")
+            self.chat.add_notice("上一轮仍在生成中，按 Esc 中断后再发送（输入内容已保留）。", "warning")
+            return
+        event.input.clear()
+        if text.startswith("/"):
+            self._run_command(text)
             return
         self._start_turn(text)
 
@@ -129,6 +136,7 @@ class XAgentApp(App[None]):
     def _start_turn(self, prompt: str) -> None:
         self._busy = True
         self.chat.add_user(prompt)
+        self.spinner.start()
         self.status.set_thinking(1, self.runtime.agent.settings.max_iterations)
         self.sidebar.refresh_session(self.runtime.session, state="生成中")
         self._turn_worker = self.run_worker(
@@ -154,6 +162,7 @@ class XAgentApp(App[None]):
             self.status.set_error(str(exc))
         finally:
             self.chat.finish_assistant()
+            self.spinner.stop()
             self._busy = False
             self._turn_worker = None
             self.sidebar.refresh_session(self.runtime.session)

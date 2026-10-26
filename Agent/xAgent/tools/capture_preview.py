@@ -14,6 +14,7 @@ from __future__ import annotations
 import fcntl
 import os
 import pty
+import re
 import select
 import struct
 import subprocess
@@ -29,6 +30,10 @@ ROOT = Path(__file__).resolve().parents[1]
 COLS, ROWS = 124, 42
 FONT_PATH = Path.home() / "Library/Fonts/SarasaMonoSC-Regular.ttf"
 FALLBACK_FONT = Path("/System/Library/Fonts/Menlo.ttc")
+
+# Textual 会发送 Kitty 键盘协议查询 / 关闭序列；pyte 不认识，会把结尾的 "u"
+# 当成普通字符留在屏幕缓冲里，导致预览图出现多余的 "u"。
+_KITTY_SEQUENCE = re.compile(rb"\x1b\[[<>][0-9;?]*u")
 
 # 与 Textual dark 主题一致的近似配色
 DEFAULT_FG = (224, 224, 224)
@@ -185,7 +190,7 @@ def main() -> None:
         raise SystemExit("未捕获到 TUI 输出，预览生成失败")
     screen = pyte.Screen(COLS, ROWS)
     stream = pyte.ByteStream(screen)
-    stream.feed(raw)
+    stream.feed(_KITTY_SEQUENCE.sub(b"", raw))
     render_screen(screen, COLS, ROWS, ROOT / "docs" / "tui-preview.png")
 
 
