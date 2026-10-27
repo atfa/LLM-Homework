@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
+import subprocess
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -44,6 +46,32 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.list_tools:
         return _list_tools(args.workspace)
+
+    # Windows 安装版首次启动：创建用户可编辑的配置，并引导填写。
+    if getattr(sys, "frozen", False) and os.name == "nt" and not args.config and not os.environ.get("XAGENT_CONFIG"):
+        from .core.infrastructure.config import _user_config_path
+
+        config_file = _user_config_path()
+        if config_file is not None and not config_file.exists():
+            import shutil
+
+            config_file.parent.mkdir(parents=True, exist_ok=True)
+            source = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)) / "config.ini.example"
+            if source.is_file():
+                shutil.copyfile(source, config_file)
+            else:
+                config_file.write_text(
+                    "[llm]\nbase_url = https://api.openai.com/v1\nmodel = gpt-4o-mini\napi_key = sk-your-key\n",
+                    encoding="utf-8",
+                )
+            print(f"首次运行：请填写配置文件 {config_file}")
+            try:
+                subprocess.run(["notepad.exe", str(config_file)], check=False)
+            except OSError:
+                pass
+            print("保存后重新运行 xAgent。")
+            input("按 Enter 退出...")
+            return 0
 
     try:
         runtime = build_runtime(config_path=args.config, workspace=args.workspace)

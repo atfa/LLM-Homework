@@ -156,6 +156,8 @@ def _read_text(path: Path, *, display: str) -> str:
     if decoded is None:
         raise ToolError(f"不是纯文本文件（UTF-8/GB18030）：{display}")
     text, _encoding = decoded
+    # Windows uses CRLF on disk; pass platform-independent text to the LLM.
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
     return text if text else "（空文件）"
 
 

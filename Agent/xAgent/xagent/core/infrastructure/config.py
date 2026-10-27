@@ -64,8 +64,17 @@ class AppConfig:
 
 
 def _project_config_path() -> Path:
-    # config.py -> infrastructure -> xagent -> xAgent
-    return Path(__file__).resolve().parents[2] / DEFAULT_CONFIG_FILENAME
+    # config.py -> infrastructure -> core -> xagent -> xAgent
+    return Path(__file__).resolve().parents[3] / DEFAULT_CONFIG_FILENAME
+
+
+def _user_config_path() -> Path | None:
+    """Windows 桌面安装版的用户配置；不写入只读的安装目录。"""
+    if os.name != "nt":
+        return None
+    base = os.environ.get("APPDATA", "").strip()
+    roaming = Path(base) if base else Path.home() / "AppData" / "Roaming"
+    return roaming / "xAgent" / DEFAULT_CONFIG_FILENAME
 
 
 def find_config_file(explicit: str | Path | None = None) -> Path:
@@ -78,6 +87,9 @@ def find_config_file(explicit: str | Path | None = None) -> Path:
         if env_path:
             candidates.append(Path(env_path).expanduser())
         candidates.append(Path.cwd() / DEFAULT_CONFIG_FILENAME)
+        user_config = _user_config_path()
+        if user_config is not None:
+            candidates.append(user_config)
         candidates.append(_project_config_path())
 
     for candidate in candidates:
