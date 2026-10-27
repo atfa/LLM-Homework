@@ -1,6 +1,7 @@
 ; xAgent per-user Windows installer. Compile from Agent/xAgent using ISCC.
 #define MyAppName "xAgent"
 #define MyAppVersion "0.1.0"
+#define ProjectRoot AddBackslash(SourcePath) + "..\"
 [Setup]
 AppId={{A15D7342-32D8-4B13-BEB3-7395F4D49E23}
 AppName={#MyAppName}
@@ -8,18 +9,18 @@ AppVersion={#MyAppVersion}
 DefaultDirName={localappdata}\Programs\xAgent
 DefaultGroupName=xAgent
 UninstallDisplayIcon={app}\xAgent.exe
-OutputDir=dist-installer
+OutputDir={#ProjectRoot}dist-installer
 OutputBaseFilename=xAgent-Setup-{#MyAppVersion}
 Compression=lzma
 SolidCompression=yes
 PrivilegesRequired=lowest
 WizardStyle=modern
-SetupIconFile=packaging\xagent.ico
+SetupIconFile={#SourcePath}xagent.ico
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
 [Files]
-Source: "dist\xAgent\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "{#ProjectRoot}dist\xAgent\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
 Name: "{group}\xAgent"; Filename: "{app}\xAgent.exe"; WorkingDir: "{userdocs}\xAgent\workspace"
