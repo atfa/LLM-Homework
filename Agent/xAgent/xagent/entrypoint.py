@@ -61,7 +61,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 shutil.copyfile(source, config_file)
             else:
                 config_file.write_text(
-                    "[llm]\\nbase_url = https://api.openai.com/v1\\nmodel = gpt-4o-mini\\napi_key = sk-your-key\\n",
+                    "[llm]\nbase_url = https://api.openai.com/v1\nmodel = gpt-4o-mini\napi_key = sk-your-key\n",
                     encoding="utf-8",
                 )
             print(f"首次运行：请填写配置文件 {config_file}")
