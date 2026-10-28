@@ -13,6 +13,7 @@ from .application.runtime import AgentRuntime, RuntimeInfo, SkillInfo
 from .application.service import AgentService
 from .application.session import ChatSession
 from .application.settings import DEFAULT_SYSTEM_PROMPT, AgentSettings
+from .domain.skills import LoadedSkills
 from .infrastructure.config import AppConfig, load_config
 from .infrastructure.llm.openai_compatible import OpenAICompatibleClient
 from .infrastructure.skills import SkillCatalog, compose_system_prompt
@@ -34,7 +35,14 @@ def build_runtime(
     app_config = config or load_config(config_path=config_path, workspace=workspace)
 
     skills = SkillCatalog.discover(project_root)
-    registry = build_tool_registry(app_config.workspace, search=app_config.search, skills=skills)
+    # 技能状态由工具注册表与聊天会话共享：loadSkill 写入，System Prompt 读取。
+    loaded_skills = LoadedSkills()
+    registry = build_tool_registry(
+        app_config.workspace,
+        search=app_config.search,
+        skills=skills,
+        loaded_skills=loaded_skills,
+    )
     llm = OpenAICompatibleClient(
         base_url=app_config.llm.base_url,
         api_key=app_config.llm.api_key,
@@ -60,7 +68,7 @@ def build_runtime(
         settings=settings,
         system_prompt_provider=render_system_prompt,
     )
-    session = ChatSession.create(system_prompt)
+    session = ChatSession.create(system_prompt, loaded_skills=loaded_skills)
 
     def render_skills() -> tuple[SkillInfo, ...]:
         return tuple(SkillInfo(name=skill.name, description=skill.description) for skill in skills.skills)

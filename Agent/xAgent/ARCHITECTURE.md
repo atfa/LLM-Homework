@@ -122,7 +122,9 @@ sequenceDiagram
 关键点：
 
 - **工作消息 vs 历史**：`working` 只活在 `run_turn` 内，包含 assistant 的 `tool_calls`
-  与 tool 结果；`session.conversation` 只记录最终问答。
+  与 tool 结果；`session.conversation` 只记录最终问答。唯一例外是 `loadSkill`
+  加载的技能正文：它记录在 `Conversation.loaded_skills` 中，随 System Prompt
+  跨轮注入，避免重复加载。
 - **单轮上限**：`AgentSettings.max_iterations` 同时限制「模型调用次数」，
   超限返回 `TurnFailed`，避免 `while True` 死循环。
 - **失败也是上下文**：工具异常被 `ToolRegistryImpl` 归一化为 `ToolOutcome.failed`，
@@ -282,6 +284,12 @@ def count_lines(sandbox: Sandbox, args: Mapping[str, object]) -> str:
 只给文件名时在 Skill 目录内递归查找；多个同名文件会返回候选路径。所有最终路径
 都经过 `realpath` 校验，必须仍在当前 Skill 目录内，越界（含软链接）直接拒绝。
 
+第一次成功加载 `SKILL.md` 后，正文写入会话级 `LoadedSkills`（`core/domain/skills.py`），
+下一轮由 `Conversation.render_system_prompt()` 追加到 System Prompt 的
+`# Loaded skills` 段；再次调用 `loadSkill` 只返回一句「已加载」提示。该状态由
+组合根同时传给工具注册表与 `ChatSession`，保证「加载」和「注入」是同一份数据；
+`Conversation.clear()`（`Ctrl+N`）会一并清空。附加文件不进入该缓存。
+
 `createSkill` 是同一子包里的写入侧：`creator.py` 校验并规范化名称，生成带
 `name` / `description` Frontmatter 的 `SKILL.md`，以独占方式创建
 `.agents/skills/<name>/`（已存在则报错，绝不覆盖），成功后调用
@@ -357,6 +365,10 @@ class MyProviderClient:
 
 这是刻意设计：工具细节只属于本轮 `working` 消息，历史只保留最终问答，
 避免上下文膨胀。需要审计时，UI 的工具卡片和日志就是审计记录。
+
+例外是 `loadSkill`：加载成功的技能正文会记录到 `Conversation.loaded_skills`，
+并随 System Prompt 跨轮注入。否则后续轮次既看不到正文，也无法判断是否加载过，
+只能重复调用 `loadSkill`，既浪费 token 又多一次模型往返。
 
 **Q: 为什么取消后历史是空的？**
 

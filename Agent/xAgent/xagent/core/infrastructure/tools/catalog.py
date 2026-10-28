@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ...domain.skills import LoadedSkills
 from ..config import SearchSettings
 from ..skills import SkillCatalog, skill_tools
 from .date_time import datetime_tools
@@ -19,6 +20,7 @@ def build_tool_registry(
     *,
     search: SearchSettings | None = None,
     skills: SkillCatalog | None = None,
+    loaded_skills: LoadedSkills | None = None,
 ) -> ToolRegistryImpl:
     """构建绑定到指定工作目录的默认工具集。
 
@@ -27,6 +29,9 @@ def build_tool_registry(
 
     ``skills`` 为初始化阶段发现的 Skill 目录；省略时以 ``workspace`` 为项目根
     扫描 ``.agents/skills/``。``loadSkill`` 始终注册，没有 Skill 时返回可读提示。
+
+    ``loaded_skills`` 是会话级已加载技能状态；与 ``ChatSession`` 共享同一实例
+    后，加载过的正文才能跨轮注入 System Prompt，并被后续 ``loadSkill`` 去重。
     """
     sandbox = Sandbox(workspace)
     settings = search or SearchSettings()
@@ -47,7 +52,7 @@ def build_tool_registry(
         *web_search_tools(client),
         *fetch_web_tools(),
         *run_cli_tools(workspace),
-        *skill_tools(skill_catalog),
+        *skill_tools(skill_catalog, loaded_skills),
     ):
         registry.register(definition, handler)
     return registry

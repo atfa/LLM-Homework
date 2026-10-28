@@ -90,7 +90,7 @@ xagent                                            # pip install -e . 后的命�
 | `Esc` | 中断当前生成 |
 | `Ctrl+Q` / `Ctrl+C` | 退出 |
 | `Ctrl+L` | 清屏（保留历史） |
-| `Ctrl+N` | 新会话（重置历史） |
+| `Ctrl+N` | 新会话（重置历史与已加载技能） |
 | `Ctrl+B` | 显示 / 隐藏侧栏 |
 | `F1` | 帮助 |
 
@@ -233,7 +233,7 @@ TUI 不接触 SSE、HTTP 或工具实现，只消费（`tui/` 是参考实现，
 | `webSearch` | 联网搜索（百度千帆 AI 搜索），返回标题 / 链接 / 日期 / 摘要 |
 | `fetchWeb` | 抓取网页并提取正文为 Markdown（curl + trafilatura） |
 | `runCli` | 调用本机任意命令行程序，返回 stdout / stderr / 退出码（`subprocess`，非 shell） |
-| `loadSkill` | 按需加载 `.agents/skills/` 中某个 Skill 的 `SKILL.md` 全文或附加文件 |
+| `loadSkill` | 按需加载 `.agents/skills/` 中某个 Skill 的 `SKILL.md` 全文或附加文件；同一会话内重复加载只返回简短提示 |
 | `createSkill` | 按自然语言创建 `.agents/skills/<name>/SKILL.md`，生成规范 Frontmatter，并即时刷新当前会话技能列表 |
 
 沙箱规则：所有路径先 `expanduser` 再 `realpath`（解析符号链接），必须落在工作目录内；
@@ -278,6 +278,8 @@ You have access to the following skills:
 
 Use the `loadSkill` tool to load the full instructions of a skill when needed.
 You can also load additional files referenced by a skill.
+Skills already listed under `Loaded skills` are loaded in this conversation:
+use their instructions directly and do not call `loadSkill` for them again.
 ```
 
 完整正文只有模型调用 `loadSkill` 时才进入上下文：
@@ -286,6 +288,26 @@ You can also load additional files referenced by a skill.
 { "name": "pdf" }                                      // 返回 SKILL.md 全文
 { "name": "pdf", "filename": "references/forms.md" }    // 只返回附加文件
 ```
+
+首次加载成功后，SKILL.md 正文会被记录为**会话级已加载技能**，并随 System
+Prompt 注入后续轮次：
+
+```text
+# Loaded skills
+
+The following skills are already loaded in this conversation.
+Use their instructions directly; do NOT call `loadSkill` for them again.
+
+## pdf
+
+# PDF 处理
+……
+```
+
+因此第二条提示词继续处理同类任务时，模型可以直接复用正文，不必再次调用
+`loadSkill`；如果它仍然重复调用，工具只返回一句简短提示，不会重复输出全文。
+附加文件（`filename`）可能较大且通常只读一次，不进入该缓存。`Ctrl+N` 新建会话
+会同时清空已加载技能。
 
 `filename` 支持 Skill 目录相对路径、项目相对路径与绝对路径；只给文件名时会在
 该 Skill 目录内递归查找，如果同名文件不唯一，会返回候选路径让模型选择。
@@ -481,7 +503,7 @@ baidu_qianfan_api_key = bce-v3/ALTAK-xxx/xxx   # 可选：联网搜索工具
 - `test_search_tools.py`：`[search]` 配置解析、搜索请求体、响应解析与错误归一化
 - `test_fetch_tools.py`：`fetchWeb` 参数校验、curl 调用（非 shell）、正文提取与各类失败归一化
 - `test_run_cli_tools.py`：`runCli` 参数校验、非 shell 参数列表、stdout/stderr/退出码格式、超时与输出截断
-- `test_skills.py`：Skill 发现、System Prompt 注入、`loadSkill` 路径解析、同名候选与目录越界保护
+- `test_skills.py`：Skill 发现、System Prompt 注入、`loadSkill` 路径解析、同名候选、目录越界保护、跨轮复用与重复加载去重
 - `test_create_skill.py`：`createSkill` 文档生成、名称规范化、非法输入、防覆盖与同轮会话刷新
 - `test_agent_service.py`：工具循环、历史只存最终问答、最大轮数、流失败、取消、截断
 - `test_sse_decoder.py`：SSE 分块、`[DONE]`、错误载荷、畸形数据

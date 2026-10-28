@@ -1,10 +1,11 @@
-"""会话历史（只保存最终问答）。"""
+"""会话历史（只保存最终问答）与已加载技能正文。"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
 from .messages import ChatMessage, Role, Turn
+from .skills import LoadedSkills, merge_system_prompt
 
 
 @dataclass
@@ -14,16 +15,25 @@ class Conversation:
     工具调用的中间消息属于「本轮工作区」，由应用层临时维护，
     不会写入这里；这里只保留 user / assistant 的最终问答，
     与原始脚本 ``history`` 的语义一致。
+
+    例外是 ``loadSkill`` 加载的技能正文：它被记录在 ``loaded_skills`` 中，
+    每轮随 System Prompt 注入，避免模型在后续轮次重复加载同一个技能。
     """
 
     system_prompt: str = ""
     _messages: list[ChatMessage] = field(default_factory=list)
+    loaded_skills: LoadedSkills = field(default_factory=LoadedSkills)
+
+    def render_system_prompt(self) -> str:
+        """基础 System Prompt + 已加载技能正文。"""
+        return merge_system_prompt(self.system_prompt, self.loaded_skills.render())
 
     def messages(self) -> tuple[ChatMessage, ...]:
         """发给模型的完整消息序列（含 system 提示词）。"""
+        prompt = self.render_system_prompt()
         prefix: tuple[ChatMessage, ...] = ()
-        if self.system_prompt.strip():
-            prefix = (ChatMessage.system(self.system_prompt),)
+        if prompt.strip():
+            prefix = (ChatMessage.system(prompt),)
         return prefix + tuple(self._messages)
 
     def history(self) -> tuple[ChatMessage, ...]:
@@ -45,6 +55,7 @@ class Conversation:
 
     def clear(self) -> None:
         self._messages.clear()
+        self.loaded_skills.clear()
 
     def __len__(self) -> int:
         return len(self._messages)

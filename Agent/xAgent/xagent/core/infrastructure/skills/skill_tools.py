@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ...domain.errors import ToolError
+from ...domain.skills import LoadedSkills
 from ...domain.tools import ToolDefinition
 from ...ports.tools import ToolHandler
 from .catalog import SkillCatalog
@@ -18,6 +19,7 @@ LOAD_SKILL = ToolDefinition(
     description=(
         "按需加载一个 Skill 的完整说明，或读取该 Skill 目录内的附加文件。"
         "只传 name 时读取该 Skill 的 SKILL.md 全文；读取 references、scripts 等附加文件时再传 filename。"
+        "同一会话内重复加载已加载过的 Skill 只会返回简短提示，不会重复输出正文。"
         "filename 支持 Skill 目录相对路径、项目相对路径和绝对路径；只给文件名时会自动在 Skill 目录内递归查找。"
         "所有读取都被限制在该 Skill 自己的目录内。"
     ),
@@ -39,6 +41,13 @@ LOAD_SKILL = ToolDefinition(
         "required": ["name"],
     },
 )
+
+MAX_PINNED_SKILL_CHARS = 50_000
+"""可固定到会话上下文的 ``SKILL.md`` 上限。
+
+超过上限的技能不进入复用缓存，避免把超大正文永久注入 System Prompt；
+代价是这类技能每次仍会按需重新加载。
+"""
 
 CREATE_SKILL = ToolDefinition(
     name="createSkill",
@@ -72,7 +81,11 @@ CREATE_SKILL = ToolDefinition(
 )
 
 
-def load_skill(catalog: SkillCatalog, arguments: Mapping[str, Any]) -> str:
+def load_skill(
+    catalog: SkillCatalog,
+    arguments: Mapping[str, Any],
+    loaded_skills: LoadedSkills | None = None,
+) -> str:
     name = _require_text(arguments, "name")
     skill = catalog.get(name)
     if skill is None:
@@ -80,9 +93,21 @@ def load_skill(catalog: SkillCatalog, arguments: Mapping[str, Any]) -> str:
         raise ToolError(f"未找到 Skill：{name}。可用 Skill：{available}")
 
     filename = _optional_text(arguments, "filename")
-    if filename is None:
-        return load_skill_content(skill)
-    return load_skill_attachment(skill, filename, catalog.project_root)
+    if filename is not None:
+        # 附加文件可能很大，且通常只读一次，因此不进入会话级已加载缓存。
+        return load_skill_attachment(skill, filename, catalog.project_root)
+
+    if loaded_skills is not None and name in loaded_skills:
+        return (
+            f"Skill `{name}` 已在本会话加载过，正文已包含在上下文的 "
+            "`Loaded skills` 部分，无需重复调用 loadSkill。"
+            "如需读取该 Skill 的附加文件，请传 filename。"
+        )
+
+    content = load_skill_content(skill)
+    if loaded_skills is not None and len(content) <= MAX_PINNED_SKILL_CHARS:
+        loaded_skills.add(name, content)
+    return content
 
 
 def create_skill(catalog: SkillCatalog, arguments: Mapping[str, Any]) -> str:
@@ -129,11 +154,20 @@ def _relative_display(path: Path, project_root: Path) -> str:
         return str(path)
 
 
-def skill_tools(catalog: SkillCatalog) -> tuple[tuple[ToolDefinition, ToolHandler], ...]:
-    """把 Skill 目录绑定到 ``loadSkill`` / ``createSkill`` 处理器。"""
+def skill_tools(
+    catalog: SkillCatalog,
+    loaded_skills: LoadedSkills | None = None,
+) -> tuple[tuple[ToolDefinition, ToolHandler], ...]:
+    """把 Skill 目录绑定到 ``loadSkill`` / ``createSkill`` 处理器。
+
+    ``loaded_skills`` 由组合根与 ``ChatSession`` 共享，保证「工具里加载过的
+    技能」和「System Prompt 里注入的正文」是同一份状态。省略时仅在本注册表
+    生命周期内去重。
+    """
+    state = loaded_skills if loaded_skills is not None else LoadedSkills()
 
     def load_handler(arguments: Mapping[str, Any]) -> str:
-        return load_skill(catalog, arguments)
+        return load_skill(catalog, arguments, state)
 
     def create_handler(arguments: Mapping[str, Any]) -> str:
         return create_skill(catalog, arguments)

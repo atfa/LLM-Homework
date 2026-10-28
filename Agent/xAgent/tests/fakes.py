@@ -12,6 +12,7 @@ from xagent.core.application.session import ChatSession
 from xagent.core.application.settings import AgentSettings
 from xagent.core.domain.events import LLMStreamEvent, StreamCompleted, TextDelta
 from xagent.core.domain.messages import ChatMessage
+from xagent.core.domain.skills import LoadedSkills
 from xagent.core.domain.tools import ToolDefinition
 from xagent.core.infrastructure.skills import SkillCatalog, compose_system_prompt
 from xagent.core.infrastructure.tools.catalog import build_tool_registry
@@ -67,7 +68,8 @@ def make_runtime(
     system_prompt: str = "你是测试助手",
 ) -> AgentRuntime:
     catalog = skills if skills is not None else SkillCatalog.discover(workspace)
-    registry = build_tool_registry(workspace, skills=catalog)
+    loaded_skills = LoadedSkills()
+    registry = build_tool_registry(workspace, skills=catalog, loaded_skills=loaded_skills)
     client = llm or FakeLLM(scripts)
 
     def render_system_prompt() -> str:
@@ -85,7 +87,7 @@ def make_runtime(
         settings=settings,
         system_prompt_provider=render_system_prompt,
     )
-    session = ChatSession.create(prompt)
+    session = ChatSession.create(prompt, loaded_skills=loaded_skills)
 
     def render_skills() -> tuple[SkillInfo, ...]:
         return tuple(SkillInfo(name=skill.name, description=skill.description) for skill in catalog.skills)

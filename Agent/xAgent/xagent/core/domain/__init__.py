@@ -9,6 +9,7 @@ from .conversation import Conversation
 from .errors import AgentError, ConfigurationError, LLMError, SandboxViolation, ToolError
 from .events import LLMStreamEvent, StreamCompleted, StreamFailed, TextDelta, ToolCallDelta
 from .messages import ChatMessage, Role, Turn, messages_to_wire
+from .skills import LOADED_SKILLS_HEADER, LoadedSkills, merge_system_prompt
 from .tools import ToolCall, ToolDefinition, ToolOutcome
 
 __all__ = [
@@ -18,6 +19,8 @@ __all__ = [
     "Conversation",
     "LLMError",
     "LLMStreamEvent",
+    "LOADED_SKILLS_HEADER",
+    "LoadedSkills",
     "Role",
     "SandboxViolation",
     "StreamCompleted",
@@ -30,5 +33,6 @@ __all__ = [
     "ToolError",
     "ToolOutcome",
     "Turn",
+    "merge_system_prompt",
     "messages_to_wire",
 ]

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from ..domain.conversation import Conversation
+from ..domain.skills import LoadedSkills
 
 
 def _new_id() -> str:
@@ -26,8 +27,19 @@ class ChatSession:
     created_at: datetime = field(default_factory=_now)
 
     @classmethod
-    def create(cls, system_prompt: str) -> ChatSession:
-        return cls(conversation=Conversation(system_prompt=system_prompt))
+    def create(
+        cls,
+        system_prompt: str,
+        *,
+        loaded_skills: LoadedSkills | None = None,
+    ) -> ChatSession:
+        """创建会话；``loaded_skills`` 应与工具注册表共享同一实例。"""
+        return cls(
+            conversation=Conversation(
+                system_prompt=system_prompt,
+                loaded_skills=loaded_skills if loaded_skills is not None else LoadedSkills(),
+            )
+        )
 
     @property
     def turn_count(self) -> int:

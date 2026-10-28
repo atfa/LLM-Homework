@@ -8,13 +8,14 @@ from pathlib import Path
 
 import pytest
 
-from tests.fakes import FakeLLM
+from tests.fakes import FakeLLM, make_runtime
 from xagent.core.application.service import AgentService
 from xagent.core.application.session import ChatSession
 from xagent.core.application.settings import DEFAULT_SYSTEM_PROMPT, AgentSettings
 from xagent.core.composition import build_runtime
 from xagent.core.domain.events import StreamCompleted, TextDelta, ToolCallDelta
 from xagent.core.domain.messages import Role
+from xagent.core.domain.skills import LoadedSkills
 from xagent.core.domain.tools import ToolCall, ToolOutcome
 from xagent.core.infrastructure.config import AppConfig, LLMSettings
 from xagent.core.infrastructure.skills import (
@@ -295,7 +296,8 @@ def test_symlink_escape_is_rejected(tmp_path: Path) -> None:
 def test_skill_body_enters_context_only_after_load_skill(tmp_path: Path) -> None:
     write_skill(tmp_path, "pdf")
     catalog = SkillCatalog.discover(tmp_path)
-    registry = build_tool_registry(tmp_path, skills=catalog)
+    loaded_skills = LoadedSkills()
+    registry = build_tool_registry(tmp_path, skills=catalog, loaded_skills=loaded_skills)
     system_prompt = compose_system_prompt("你是测试助手", catalog)
 
     arguments = json.dumps({"name": "pdf"}, ensure_ascii=False)
@@ -303,7 +305,7 @@ def test_skill_body_enters_context_only_after_load_skill(tmp_path: Path) -> None
     second = [TextDelta("已加载技能"), StreamCompleted("stop")]
     llm = FakeLLM([first, second])
     agent = AgentService(llm=llm, tools=registry, settings=AgentSettings(system_prompt=system_prompt))
-    session = ChatSession.create(system_prompt)
+    session = ChatSession.create(system_prompt, loaded_skills=loaded_skills)
 
     async def run() -> list[object]:
         return [event async for event in agent.run_turn(session, "用 pdf 技能处理文件")]
@@ -319,9 +321,87 @@ def test_skill_body_enters_context_only_after_load_skill(tmp_path: Path) -> None
     assert tool_result.role is Role.TOOL
     assert "只在调用 loadSkill 后才应该进入上下文" in tool_result.content
 
+    # 历史仍然只保留最终问答，但正文会作为「已加载技能」跨轮复用。
     history = session.conversation.history()
     assert [message.role for message in history] == [Role.USER, Role.ASSISTANT]
     assert history[-1].content == "已加载技能"
+    assert session.conversation.loaded_skills.names() == ("pdf",)
+    assert BODY.strip() in session.conversation.render_system_prompt()
+
+
+def test_repeated_load_skill_returns_short_notice(tmp_path: Path) -> None:
+    write_skill(tmp_path, "pdf")
+    registry = registry_for(tmp_path)
+
+    first = invoke(registry, name="pdf")
+    second = invoke(registry, name="pdf")
+
+    assert BODY.strip() in first.content
+    assert "已在本会话加载过" in second.content
+    assert BODY.strip() not in second.content
+
+
+def test_loaded_skill_is_reused_on_next_turn(tmp_path: Path) -> None:
+    write_skill(tmp_path, "notice", description="撰写通知")
+    arguments = json.dumps({"name": "notice"}, ensure_ascii=False)
+    first = [*tool_call_chunks(0, "call_1", "loadSkill", arguments), StreamCompleted("tool_calls")]
+    second = [TextDelta("第一份通知"), StreamCompleted("stop")]
+    # 第二轮脚本里没有 loadSkill：正文已经在 System Prompt 中，模型不需要再加载。
+    third = [TextDelta("第二份通知"), StreamCompleted("stop")]
+    llm = FakeLLM([first, second, third])
+    runtime = make_runtime(tmp_path, [], llm=llm)
+
+    async def run() -> None:
+        async for _event in runtime.agent.run_turn(runtime.session, "写一份通知"):
+            pass
+        async for _event in runtime.agent.run_turn(runtime.session, "再写一份不同的通知"):
+            pass
+
+    asyncio.run(run())
+
+    assert len(llm.calls) == 3
+    second_turn = llm.calls[2]
+    assert second_turn[0].role is Role.SYSTEM
+    assert BODY.strip() in second_turn[0].content
+    # 正文只出现一次，且没有额外的工具往返。
+    assert sum(BODY.strip() in message.content for message in second_turn) == 1
+    assert all(message.role is not Role.TOOL for message in second_turn)
+
+    assert [message.role for message in runtime.session.conversation.history()] == [
+        Role.USER,
+        Role.ASSISTANT,
+        Role.USER,
+        Role.ASSISTANT,
+    ]
+
+
+def test_loaded_skill_survives_system_prompt_refresh(tmp_path: Path) -> None:
+    write_skill(tmp_path, "notice", description="撰写通知")
+    load_args = json.dumps({"name": "notice"}, ensure_ascii=False)
+    create_args = json.dumps(
+        {"name": "extra", "skillContext": "# Extra\n\n运行期新增的技能。"},
+        ensure_ascii=False,
+    )
+    first = [*tool_call_chunks(0, "call_1", "loadSkill", load_args), StreamCompleted("tool_calls")]
+    second = [TextDelta("第一轮完成"), StreamCompleted("stop")]
+    third = [*tool_call_chunks(0, "call_2", "createSkill", create_args), StreamCompleted("tool_calls")]
+    fourth = [TextDelta("第二轮完成"), StreamCompleted("stop")]
+    llm = FakeLLM([first, second, third, fourth])
+    runtime = make_runtime(tmp_path, [], llm=llm)
+
+    async def run() -> None:
+        async for _event in runtime.agent.run_turn(runtime.session, "写一份通知"):
+            pass
+        async for _event in runtime.agent.run_turn(runtime.session, "再建一个技能"):
+            pass
+
+    asyncio.run(run())
+
+    # createSkill 触发 System Prompt 重渲染后，已加载技能正文不能被冲掉。
+    refreshed = llm.calls[3][0]
+    assert refreshed.role is Role.SYSTEM
+    assert BODY.strip() in refreshed.content
+    assert "- `extra`" in refreshed.content
 
 
 def test_composition_injects_skills_and_registers_load_skill(tmp_path: Path) -> None:

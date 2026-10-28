@@ -9,7 +9,9 @@ from .catalog import Skill
 SKILLS_PROMPT_HEADER = "You have access to the following skills:"
 SKILLS_PROMPT_FOOTER = (
     "Use the `loadSkill` tool to load the full instructions of a skill when needed. "
-    "You can also load additional files referenced by a skill."
+    "You can also load additional files referenced by a skill. "
+    "Skills already listed under `Loaded skills` are loaded in this conversation: "
+    "use their instructions directly and do not call `loadSkill` for them again."
 )
 
 

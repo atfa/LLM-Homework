@@ -94,6 +94,22 @@ def test_conversation_keeps_only_final_turns() -> None:
     assert conversation.messages() == (ChatMessage.system("系统提示"),)
 
 
+def test_conversation_renders_loaded_skills_and_clears_them() -> None:
+    conversation = Conversation(system_prompt="系统提示")
+    conversation.loaded_skills.add("notice", "# 通知\n\n正文")
+
+    system = conversation.messages()[0]
+    assert system.role is Role.SYSTEM
+    assert system.content.startswith("系统提示")
+    assert "# Loaded skills" in system.content
+    assert "## notice" in system.content
+    assert "正文" in system.content
+
+    conversation.clear()
+    assert conversation.messages() == (ChatMessage.system("系统提示"),)
+    assert conversation.loaded_skills.names() == ()
+
+
 def test_conversation_rejects_system_append() -> None:
     with pytest.raises(ValueError):
         Conversation().append(ChatMessage.system("x"))

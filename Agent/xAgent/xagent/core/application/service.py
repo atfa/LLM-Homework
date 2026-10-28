@@ -19,6 +19,7 @@ from ..domain.accumulator import ToolCallAccumulator
 from ..domain.errors import LLMError
 from ..domain.events import StreamFailed, TextDelta, ToolCallDelta
 from ..domain.messages import ChatMessage, Role
+from ..domain.skills import merge_system_prompt
 from ..domain.tools import ToolCall, ToolOutcome
 from ..ports.llm import LLMClient
 from ..ports.tools import ToolRegistry
@@ -63,7 +64,8 @@ class AgentService:
         """执行一轮「提问 → 模型 → 工具 → 模型 → … → 最终回答」。
 
         事件流以 ``TurnCompleted`` 或 ``TurnFailed`` 结束（取消时以
-        ``CancelledError`` 结束）。只有最终问答会写入 ``session``。
+        ``CancelledError`` 结束）。只有最终问答会写入 ``session``；
+        已加载技能的正文由 ``loadSkill`` 记录在会话中，跨轮复用。
         """
         prompt = prompt.strip()
         if not prompt:
@@ -77,12 +79,15 @@ class AgentService:
         # 只有最终问答会在成功时写回 session.conversation。
         working: list[ChatMessage] = list(session.conversation.messages())
         working.append(ChatMessage.user(prompt))
+        # 已加载技能在轮次开始时注入一次；轮内新加载的正文已经作为工具结果
+        # 出现在 working 里，不再重复写进 System Prompt。
+        loaded_skills = session.conversation.loaded_skills.render()
 
         tool_call_count = 0
 
         try:
             for iteration in range(1, self._settings.max_iterations + 1):
-                working = self._sync_system_prompt(session, working)
+                working = self._sync_system_prompt(session, working, loaded_skills)
                 yield IterationStarted(iteration=iteration, max_iterations=self._settings.max_iterations)
 
                 accumulator = ToolCallAccumulator()
@@ -161,8 +166,17 @@ class AgentService:
         omitted = len(content) - limit
         return f"{content[:limit]}\n...（工具结果过长，已截断 {omitted} 个字符）"
 
-    def _sync_system_prompt(self, session: ChatSession, working: list[ChatMessage]) -> list[ChatMessage]:
-        """刷新 System Prompt，使运行期新增的 Skill 在下一轮模型调用中立即可见。"""
+    def _sync_system_prompt(
+        self,
+        session: ChatSession,
+        working: list[ChatMessage],
+        loaded_skills: str = "",
+    ) -> list[ChatMessage]:
+        """刷新 System Prompt，使运行期新增的 Skill 在下一轮模型调用中立即可见。
+
+        ``loaded_skills`` 是本轮开始时已加载技能的渲染文本：即使刷新了基础
+        Prompt（例如 createSkill 之后），也要保留它，避免已加载正文被冲掉。
+        """
         provider = self._system_prompt_provider
         if provider is None:
             return working
@@ -174,13 +188,14 @@ class AgentService:
         session.conversation.system_prompt = prompt
         self._settings = replace(self._settings, system_prompt=prompt)
 
+        effective = merge_system_prompt(prompt, loaded_skills)
         if working and working[0].role is Role.SYSTEM:
-            if prompt.strip():
-                working[0] = ChatMessage.system(prompt)
+            if effective.strip():
+                working[0] = ChatMessage.system(effective)
             else:
                 del working[0]
-        elif prompt.strip():
-            working.insert(0, ChatMessage.system(prompt))
+        elif effective.strip():
+            working.insert(0, ChatMessage.system(effective))
         return working
 
     async def aclose(self) -> None:
