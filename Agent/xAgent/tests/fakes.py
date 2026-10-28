@@ -6,7 +6,7 @@ import asyncio
 from collections.abc import AsyncIterator, Sequence
 from pathlib import Path
 
-from xagent.core.application.runtime import AgentRuntime, RuntimeInfo
+from xagent.core.application.runtime import AgentRuntime, RuntimeInfo, SkillInfo
 from xagent.core.application.service import AgentService
 from xagent.core.application.session import ChatSession
 from xagent.core.application.settings import AgentSettings
@@ -86,6 +86,10 @@ def make_runtime(
         system_prompt_provider=render_system_prompt,
     )
     session = ChatSession.create(prompt)
+
+    def render_skills() -> tuple[SkillInfo, ...]:
+        return tuple(SkillInfo(name=skill.name, description=skill.description) for skill in catalog.skills)
+
     info = RuntimeInfo(
         app_name="xAgent",
         version="test",
@@ -94,5 +98,6 @@ def make_runtime(
         workspace=str(workspace),
         theme="textual-dark",
         tools=tuple(registry.definitions()),
+        skills=render_skills(),
     )
-    return AgentRuntime(agent=agent, session=session, info=info)
+    return AgentRuntime(agent=agent, session=session, info=info, skills_provider=render_skills)

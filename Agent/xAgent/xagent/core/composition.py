@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .. import __version__
-from .application.runtime import AgentRuntime, RuntimeInfo
+from .application.runtime import AgentRuntime, RuntimeInfo, SkillInfo
 from .application.service import AgentService
 from .application.session import ChatSession
 from .application.settings import DEFAULT_SYSTEM_PROMPT, AgentSettings
@@ -62,6 +62,9 @@ def build_runtime(
     )
     session = ChatSession.create(system_prompt)
 
+    def render_skills() -> tuple[SkillInfo, ...]:
+        return tuple(SkillInfo(name=skill.name, description=skill.description) for skill in skills.skills)
+
     info = RuntimeInfo(
         app_name="xAgent",
         version=__version__,
@@ -70,8 +73,9 @@ def build_runtime(
         workspace=str(app_config.workspace),
         theme=app_config.theme,
         tools=tuple(registry.definitions()),
+        skills=render_skills(),
     )
-    return AgentRuntime(agent=agent, session=session, info=info)
+    return AgentRuntime(agent=agent, session=session, info=info, skills_provider=render_skills)
 
 
 __all__ = ["build_runtime"]

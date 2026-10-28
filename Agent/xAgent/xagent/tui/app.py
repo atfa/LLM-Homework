@@ -90,6 +90,7 @@ class XAgentApp(App[None]):
         self.chat.add_welcome(model=info.model, workspace=info.workspace, tool_count=len(info.tools))
         self.status.set_idle()
         self.sidebar.refresh_session(self.runtime.session)
+        self.sidebar.refresh_skills(self.runtime.skills())
         self.prompt_input.focus()
 
     # ---- 输入处理 -----------------------------------------------------
@@ -166,6 +167,7 @@ class XAgentApp(App[None]):
             self._busy = False
             self._turn_worker = None
             self.sidebar.refresh_session(self.runtime.session)
+            self.sidebar.refresh_skills(self.runtime.skills())
             self.prompt_input.focus()
 
     def _on_agent_event(self, event: AgentEvent) -> None:

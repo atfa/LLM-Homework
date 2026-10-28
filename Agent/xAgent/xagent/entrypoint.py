@@ -52,7 +52,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
     try:
-        from .tui.app import run_tui
+        try:
+            from .tui.app import run_tui
+        except ModuleNotFoundError as exc:
+            if exc.name != "textual":
+                raise
+            print(
+                "启动失败：当前 Python 解释器没有安装 textual。\n"
+                f"  解释器：{sys.executable}\n"
+                f"  请改用项目虚拟环境：.venv/bin/python main.py\n"
+                f"  或安装依赖：{Path(sys.executable).name} -m pip install -e .",
+                file=sys.stderr,
+            )
+            return 2
 
         run_tui(runtime)
         return 0

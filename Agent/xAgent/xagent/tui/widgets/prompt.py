@@ -2,6 +2,8 @@
 
 - :class:`PromptInput` 基于 ``TextArea``：支持多行输入 / 粘贴；
   ``Enter`` 发送，``Shift+Enter``（以及 ``Ctrl+J`` / ``Alt+Enter``）换行。
+  中文输入法用回车临时上屏（直接输入英文 / 原样提交拼音）时，不会触发发送，
+  而是把上屏文本当作普通输入插入。
 - :class:`Spinner` 是输入框左侧的状态指示：空闲时是一个提示符，
   等待模型回复时变成旋转动画。
 """
@@ -66,6 +68,11 @@ class PromptInput(TextArea):
         if event.key == "enter":
             event.stop()
             event.prevent_default()
+            if self._is_ime_commit(event):
+                # 输入法上屏：字符要插入光标处，而不是把整个输入框发出去
+                assert event.character is not None
+                self._insert_text(event.character)
+                return
             self.post_message(self.Submitted(self, self.text))
             return
         if event.key in self.NEWLINE_KEYS:
@@ -73,10 +80,25 @@ class PromptInput(TextArea):
             event.prevent_default()
             self._insert_newline()
 
-    def _insert_newline(self) -> None:
+    @staticmethod
+    def _is_ime_commit(event: events.Key) -> bool:
+        """判断这个 ``enter`` 事件其实是输入法上屏。
+
+        支持 Kitty 键盘协议的终端（Kitty / WezTerm / Ghostty 等）会把输入法
+        上屏文本编码进 CSI-u 序列，例如 ``\\x1b[13;;20320:22909u``。Textual
+        解析后把触发键（回车）当作 ``key``、把上屏字符逐个当作 ``character``，
+        于是出现 ``Key("enter", "你")`` 这样“既是回车又是可打印字符”的事件。
+        真正的回车不带可打印字符（``character`` 为 ``\\r`` 或 ``None``）。
+        """
+        return event.is_printable and event.character is not None
+
+    def _insert_text(self, text: str) -> None:
         start, end = self.selection
-        result = self.replace("\n", start, end)
+        result = self.replace(text, start, end)
         self.move_cursor(result.end_location)
+
+    def _insert_newline(self) -> None:
+        self._insert_text("\n")
 
     # ---- 自适应高度 ---------------------------------------------------
     def on_mount(self) -> None:

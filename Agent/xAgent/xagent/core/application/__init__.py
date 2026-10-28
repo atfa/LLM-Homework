@@ -11,7 +11,7 @@ from .events import (
     TurnFailed,
     TurnStarted,
 )
-from .runtime import AgentRuntime, RuntimeInfo
+from .runtime import AgentRuntime, RuntimeInfo, SkillInfo
 from .service import AgentService
 from .session import ChatSession
 from .settings import AgentSettings
@@ -26,6 +26,7 @@ __all__ = [
     "IterationCompleted",
     "IterationStarted",
     "RuntimeInfo",
+    "SkillInfo",
     "ToolCallFinished",
     "ToolCallStarted",
     "TurnCompleted",

@@ -9,6 +9,7 @@ from pathlib import Path
 from textual._xterm_parser import XTermParser
 from textual.events import Key, Paste
 from textual.widget import Widget
+from textual.widgets import Static
 
 from tests.fakes import SlowLLM, make_runtime
 from xagent.core.domain.events import StreamCompleted, TextDelta, ToolCallDelta
@@ -189,6 +190,53 @@ def test_long_ime_sequence_is_parsed_as_text() -> None:
     assert text == "成都东软嘎UN"
 
 
+def _post_parsed_keys(tui: XAgentApp, sequence: str) -> list[Key]:
+    """把终端序列解析成按键事件，按真实路径投递给 App。"""
+    keys = [event for event in XTermParser().feed(sequence) if isinstance(event, Key)]
+    for key in keys:
+        tui.post_message(key.copy())
+    return keys
+
+
+def test_tui_ime_enter_commit_does_not_submit(tmp_path: Path) -> None:
+    """输入法用回车临时上屏时只插入文本，真正的回车才发送。"""
+    runtime = make_runtime(tmp_path, [[TextDelta("ok"), StreamCompleted("stop")]])
+
+    async def scenario() -> None:
+        tui = XAgentApp(runtime)
+        async with tui.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+
+            # 回车让英文（或原样拼音）上屏：CSI-u 带上屏文本，key 仍是 enter
+            keys = _post_parsed_keys(tui, "\x1b[13;;110:105:104:97:111u")
+            assert [(key.key, key.character) for key in keys] == [
+                ("enter", "n"),
+                ("enter", "i"),
+                ("enter", "h"),
+                ("enter", "a"),
+                ("enter", "o"),
+            ]
+            await pilot.pause()
+
+            assert tui.prompt_input.value == "nihao"
+            assert runtime.session.turn_count == 0
+            assert tui.prompt_input.has_focus
+
+            # 回车提交中文候选词同样不应该发送
+            _post_parsed_keys(tui, "\x1b[13;;20320:22909u")
+            await pilot.pause()
+            assert tui.prompt_input.value == "nihao你好"
+            assert runtime.session.turn_count == 0
+
+            # 真正的回车（不带可打印字符）才发送
+            await pilot.press("enter")
+            await wait_until(lambda: runtime.session.turn_count == 1)
+            await pilot.pause()
+            assert runtime.session.conversation.history()[-2].content == "nihao你好"
+
+    asyncio.run(scenario())
+
+
 def test_tui_paste_keeps_multiple_lines(tmp_path: Path) -> None:
     runtime = make_runtime(tmp_path, [[TextDelta("ok"), StreamCompleted("stop")]])
 
@@ -268,5 +316,49 @@ def test_tui_new_session_resets_history(tmp_path: Path) -> None:
             await pilot.pause()
             assert runtime.session.turn_count == 0
             assert chat_widgets(tui, UserMessage) == []
+
+    asyncio.run(scenario())
+
+
+def test_tui_sidebar_lists_available_skills(tmp_path: Path) -> None:
+    for dirname, name, description in (
+        ("pdf", "pdf", "处理 PDF 文件"),
+        ("excel", "excel", "读写表格"),
+    ):
+        directory = tmp_path / ".agents" / "skills" / dirname
+        directory.mkdir(parents=True)
+        (directory / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: {description}\n---\n# {name}\n",
+            encoding="utf-8",
+        )
+    runtime = make_runtime(tmp_path, [])
+
+    async def scenario() -> None:
+        tui = XAgentApp(runtime)
+        async with tui.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+
+            title = tui.sidebar.query_one("#sidebar-skills-title", Static)
+            body = tui.sidebar.query_one("#sidebar-skills-body", Static)
+            assert "技能 · 2" in str(title.content)
+            assert "• pdf" in str(body.content)
+            assert "处理 PDF 文件" in str(body.content)
+            assert "• excel" in str(body.content)
+
+    asyncio.run(scenario())
+
+
+def test_tui_sidebar_shows_empty_skills_hint(tmp_path: Path) -> None:
+    runtime = make_runtime(tmp_path, [])
+
+    async def scenario() -> None:
+        tui = XAgentApp(runtime)
+        async with tui.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+
+            title = tui.sidebar.query_one("#sidebar-skills-title", Static)
+            body = tui.sidebar.query_one("#sidebar-skills-body", Static)
+            assert "技能 · 0" in str(title.content)
+            assert "无可用 Skill" in str(body.content)
 
     asyncio.run(scenario())

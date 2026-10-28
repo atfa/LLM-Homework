@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import VerticalScroll
 from textual.widgets import Static
 
-from ...core.application.runtime import RuntimeInfo
+from ...core.application.runtime import RuntimeInfo, SkillInfo
 from ...core.application.session import ChatSession
 from ...core.application.settings import AgentSettings
 
@@ -23,16 +25,21 @@ class Sidebar(VerticalScroll):
         self._settings = settings
         self._session_body = Static("", classes="sidebar-body")
         self._tools_body = Static("", classes="sidebar-body")
+        self._skills_title = Static("", id="sidebar-skills-title", classes="section-title")
+        self._skills_body = Static("", id="sidebar-skills-body", classes="sidebar-body")
 
     def compose(self) -> ComposeResult:
         yield Static("会话", classes="section-title")
         yield self._session_body
         yield Static(f"工具 · {len(self._info.tools)}", classes="section-title")
         yield self._tools_body
+        yield self._skills_title
+        yield self._skills_body
         yield Static("Ctrl+B 收起侧栏 · F1 帮助", classes="sidebar-hint")
 
     def on_mount(self) -> None:
         self._render_tools()
+        self.refresh_skills(self._info.skills)
         self.refresh_session(None)
 
     def _render_tools(self) -> None:
@@ -41,6 +48,17 @@ class Sidebar(VerticalScroll):
             body.append(f"• {definition.name}\n", style="bold")
             body.append(f"  {_shorten(definition.description, 34)}\n", style="dim")
         self._tools_body.update(body)
+
+    def refresh_skills(self, skills: Sequence[SkillInfo]) -> None:
+        """刷新可用 Skill 数量与列表（createSkill 会在运行期改变它）。"""
+        self._skills_title.update(f"技能 · {len(skills)}")
+        body = Text()
+        for skill in skills:
+            body.append(f"• {skill.name}\n", style="bold")
+            body.append(f"  {_shorten(skill.description, 34)}\n", style="dim")
+        if not skills:
+            body.append("（无可用 Skill）", style="dim")
+        self._skills_body.update(body)
 
     def refresh_session(self, session: ChatSession | None, *, state: str = "就绪", elapsed_s: float = 0.0) -> None:
         body = Text()
