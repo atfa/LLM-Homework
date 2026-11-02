@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "Bazi-MCP": {
+      "type": "streamable_http",
+      "url": "https://mcp.api-inference.modelscope.net/4a3222faa31a4e/mcp"
+    },
+    "pet-hospital": {
+      "command": "/Users/atfa/fix/LLM_Course-Project/PetHospitalMCP/petmcp",
+      "args": ["-auto", "-v"]
+    }
+  }
+}

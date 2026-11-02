@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -24,6 +24,17 @@ class ToolRegistryImpl:
 
     def __init__(self) -> None:
         self._entries: dict[str, _Entry] = {}
+        self._cleanup: Callable[[], None] | None = None
+
+    def set_cleanup(self, cleanup: Callable[[], None] | None) -> None:
+        """注册运行期资源的同步关闭函数（例如 MCP 会话）。"""
+        self._cleanup = cleanup
+
+    async def aclose(self) -> None:
+        """释放注册表持有的外部资源；可重复调用。"""
+        cleanup, self._cleanup = self._cleanup, None
+        if cleanup is not None:
+            await asyncio.to_thread(cleanup)
 
     # ---- 注册 ---------------------------------------------------------
     def register(self, definition: ToolDefinition, handler: ToolHandler, *, overwrite: bool = False) -> None:

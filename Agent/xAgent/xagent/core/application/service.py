@@ -199,6 +199,9 @@ class AgentService:
         return working
 
     async def aclose(self) -> None:
+        close_tools = getattr(self._tools, "aclose", None)
+        if close_tools is not None:
+            await close_tools()
         close = getattr(self._llm, "aclose", None)
         if close is not None:
             await close()

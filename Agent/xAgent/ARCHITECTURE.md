@@ -258,6 +258,7 @@ def count_lines(sandbox: Sandbox, args: Mapping[str, object]) -> str:
 | `web_fetch/` | `fetchWeb` | 本地 `curl`（子进程）+ `trafilatura`（HTML 正文提取） |
 | `run_cli/` | `runCli` | 任意本地 CLI（子进程，参数列表 + `shell=False`） |
 | `infrastructure/skills/` | `loadSkill`、`createSkill` | 无（读取范围限制在当前 Skill 目录） |
+| `infrastructure/mcp/` | 动态 MCP 工具 | MCP Python SDK（Streamable HTTP，后台事件循环） |
 
 `web_search/` 是「需要网络与外部凭证」的工具范例：凭证来自 `[search]` 段
 （`SearchSettings`），由 `catalog.build_tool_registry(workspace, search=...)` 注入；
@@ -297,7 +298,59 @@ def count_lines(sandbox: Sandbox, args: Mapping[str, object]) -> str:
 `system_prompt_provider`，在每次模型调用前重新渲染 System Prompt，因此新建的
 Skill 在当前会话的下一轮迭代里就能被发现；辅助文件仍由 fileOps 工具创建。
 
-### 8.2 新增模型厂商
+### 8.2 接入 MCP Server（无需改代码）
+
+在项目工作目录放 `.mcp.json` 即可动态接入 MCP Server，支持 Streamable HTTP
+与 stdio 两种标准传输：
+
+```json
+{
+  "mcpServers": {
+    "Bazi-MCP": {
+      "type": "streamable_http",
+      "url": "https://mcp.api-inference.modelscope.net/4a3222faa31a4e/mcp",
+      "headers": { "Authorization": "Bearer ..." },
+      "timeout": 30
+    },
+    "pet-hospital": {
+      "command": "/Users/atfa/fix/LLM_Course-Project/PetHospitalMCP/petmcp",
+      "args": ["-auto", "-v"]
+    }
+  }
+}
+```
+
+stdio 配置省略 `type` 时会根据 `command` 自动识别；`env` 会合并到 SDK 的
+默认环境变量上，`cwd` 决定子进程工作目录。
+
+装配链路：
+
+```text
+build_tool_registry(workspace)
+  → load_mcp_config(workspace/.mcp.json)
+  → McpClientManager.connect()             # infrastructure/mcp/client.py
+      每个 Server 一个长生命周期 asyncio 任务
+      initialize() → list_tools()
+  → McpToolBridge                          # 暴露名 ⇄ (Server, 原始工具名)
+  → ToolRegistryImpl.register(...)         # 与本地工具完全同构
+```
+
+- MCP SDK 是异步的，而现有 `ToolHandler` 是同步函数；`McpClientManager`
+  在独立后台事件循环线程中维护会话，`call_tool()` 用
+  `run_coroutine_threadsafe` 桥接，因此应用层 / UI 层无需感知。
+- 每个 Server 的会话在一个任务里进入、离开 `AsyncExitStack`，满足 anyio
+  「cancel scope 必须在同一任务退出」的要求。
+- stdio 使用 SDK 的 `StdioServerParameters` + `stdio_client` 启动子进程，
+  会话关闭时由 SDK 终止进程；HTTP 与 stdio 共用同一套 `list_tools()` /
+  `call_tool()` 桥接逻辑。
+- 工具名冲突（本地工具、其他 Server、非法字符、超过 64 字符）时自动加
+  `<server>__` 前缀，并维护显式映射；无冲突时保持原始工具名。
+- 单个 Server 连接失败只记录在 `McpServerStatus`，由 catalog 输出提示，
+  其余工具照常注册。
+- `ToolRegistryImpl.aclose()` → `McpClientManager.close()`，随
+  `AgentRuntime.aclose()` 一起释放连接。
+
+### 8.3 新增模型厂商
 
 实现 `LLMClient` 端口：
 
@@ -313,7 +366,7 @@ class MyProviderClient:
 
 然后在 `core.composition.build_runtime()` 中替换实现。应用层与界面层不需要改。
 
-### 8.3 新增界面
+### 8.4 新增界面
 
 见 [ADDING_A_UI.md](ADDING_A_UI.md)。核心只有三步：
 
@@ -321,7 +374,7 @@ class MyProviderClient:
 2. `async for event in agent.run_turn(session, prompt)`；
 3. 按事件渲染；输入侧再次调用 `run_turn`。
 
-### 8.4 样式与主题
+### 8.5 样式与主题
 
 `tui/app.tcss` 只描述外观。新增主题时优先改 CSS 变量
 （`$primary` / `$surface` / `$text-muted` …），不要把颜色写进 Python。

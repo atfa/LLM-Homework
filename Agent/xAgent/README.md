@@ -6,8 +6,9 @@
 > 后续新增了第 13 个工具 `webSearch`（百度千帆 AI 搜索）、
 > 第 14 个工具 `fetchWeb`（网页正文提取）、
 > 第 15 个工具 `runCli`（调用本机任意命令行程序），
-> 第 16 个工具 `loadSkill`（按需加载 Agent Skills），
-> 以及第 17 个工具 `createSkill`（按自然语言创建新 Skill 并即时生效）。
+> 第 16 个工具 `loadSkill`（按需加载 Agent Skills）、
+> 第 17 个工具 `createSkill`（按自然语言创建新 Skill 并即时生效），
+> 以及通过 `.mcp.json` 动态接入的 MCP Server 工具（Streamable HTTP / stdio）。
 
 ![xAgent TUI](docs/tui-preview.png)
 
@@ -19,7 +20,7 @@
 | UI 只能是终端 `print` | Textual TUI 消费事件流；Web / Desktop 照 `tui/` 参考实现新增即可 |
 | 工具循环 `while True`，可能无限调用 | `max_iterations` 上限 + 可取消 |
 | 工具逻辑与 `os` / 全局变量耦合 | 工具按领域拆分子包（`date_time/`、`file_ops/`），通过 `ToolRegistry` 端口注入 |
-| 无测试 | 167 项测试：领域、沙箱、工具、循环、SSE、配置、分层约束、TUI 无头 |
+| 无测试 | 180+ 项测试：领域、沙箱、工具、MCP、循环、SSE、配置、分层约束、TUI 无头 |
 | 无法替换模型客户端 | `LLMClient` 端口，OpenAI 兼容实现可替换 |
 
 ## 亮点
@@ -70,7 +71,7 @@ xagent                                            # pip install -e . 后的命�
 │ ChatView                         │ Sidebar                   │
 │  · 用户消息                      │  · 模型 / 接口 / 目录     │
 │  · 流式 Markdown 回答            │  · 会话 id / 轮次 / 消息  │
-│  · 可展开的工具卡片（参数/结果） │  · 17 个工具与说明        │
+│  · 可展开的工具卡片（参数/结果） │  · 17 个内置工具 + MCP 工具  │
 │  · 错误 / 中断提示               │  · 可用 Skills 数量与列表 │
 ├──────────────────────────────────┴───────────────────────────┤
 │ Input：Enter 发送，Shift+Enter 换行；等待左侧转圈动画        │
@@ -214,7 +215,7 @@ TUI 不接触 SSE、HTTP 或工具实现，只消费（`tui/` 是参考实现，
 
 取消不以事件表达：`run_turn` 被取消时直接抛 `CancelledError`，由 UI 决定提示方式。
 
-## 工具（17 个）
+## 工具（17 个内置 + 动态 MCP 工具）
 
 | 工具 | 说明 |
 | --- | --- |
@@ -238,6 +239,42 @@ TUI 不接触 SSE、HTTP 或工具实现，只消费（`tui/` 是参考实现，
 
 沙箱规则：所有路径先 `expanduser` 再 `realpath`（解析符号链接），必须落在工作目录内；
 `../`、绝对路径越界、指向外部的软链接都会被拒绝。二进制文件与超大文件拒绝读取。
+
+### MCP Server（动态工具）
+
+xAgent 启动时读取**工作目录**（`--workspace` / `XAGENT_WORKSPACE`，默认当前目录）
+下的 `.mcp.json`，使用 MCP Python SDK 连接 Server，并在 `list_tools()` 之后把
+远端工具动态注册进现有的 `ToolRegistry`。支持两种标准传输：
+
+```json
+{
+  "mcpServers": {
+    "Bazi-MCP": {
+      "type": "streamable_http",
+      "url": "https://mcp.api-inference.modelscope.net/4a3222faa31a4e/mcp"
+    },
+    "pet-hospital": {
+      "command": "/Users/atfa/fix/LLM_Course-Project/PetHospitalMCP/petmcp",
+      "args": ["-auto", "-v"]
+    }
+  }
+}
+```
+
+- **Streamable HTTP**：`type` 支持 `streamable_http` / `streamable-http` /
+  `streamableHttp` / `http`；可选 `headers`（例如 `Authorization`）与
+  `timeout`（秒，默认 30）。
+- **stdio**：`type: "stdio"`（省略 `type` 时，只要提供 `command` 就自动按 stdio
+  处理）；支持 `command`、`args`、`env`、`cwd`、`timeout`。
+- MCP 工具与 `runCli`、`fetchWeb`、`loadSkill` 等本地工具处于同一个注册表，
+  LLM 通过同一套 Function Calling 协议调用；
+- 工具名冲突时自动加服务器前缀，内部维护
+  `暴露名 → (Server, 原始工具名)` 映射；
+- 单个 Server 连不上时只输出 `[MCP] 无法连接…已跳过该服务器的工具`，
+  不会影响本地工具和其他 Server；
+- SSE 配置会被跳过并给出提示。
+
+用 `python main.py --list-tools` 可以在不调用模型的情况下检查 MCP 工具发现结果。
 
 ### Agent Skills（loadSkill / createSkill）
 
