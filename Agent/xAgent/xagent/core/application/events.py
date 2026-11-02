@@ -64,6 +64,13 @@ class TurnCompleted:
 
 
 @dataclass(frozen=True, slots=True)
+class ContextWarning:
+    tokens: int
+    window: int
+    message: str = "上下文已达到 80%，新的提示词已暂停，请执行 /compact"
+
+
+@dataclass(frozen=True, slots=True)
 class TurnFailed:
     message: str
 
@@ -77,4 +84,5 @@ AgentEvent = (
     | ToolCallFinished
     | TurnCompleted
     | TurnFailed
+    | ContextWarning
 )

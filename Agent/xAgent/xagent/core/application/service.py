@@ -11,21 +11,24 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import replace
 
 from ..domain.accumulator import ToolCallAccumulator
 from ..domain.errors import LLMError
-from ..domain.events import StreamFailed, TextDelta, ToolCallDelta
+from ..domain.events import StreamCompleted, StreamFailed, TextDelta, TokenUsage, ToolCallDelta
 from ..domain.messages import ChatMessage, Role
 from ..domain.skills import merge_system_prompt
 from ..domain.tools import ToolCall, ToolOutcome
 from ..ports.llm import LLMClient
 from ..ports.tools import ToolRegistry
+from .context import COMPACT_PROMPT, ContextArchive, estimate_context, estimate_text
 from .events import (
     AgentEvent,
     AssistantTextDelta,
+    ContextWarning,
     IterationCompleted,
     IterationStarted,
     ToolCallFinished,
@@ -48,7 +51,9 @@ class AgentService:
         settings: AgentSettings | None = None,
         *,
         system_prompt_provider: Callable[[], str] | None = None,
+        context_archive: ContextArchive | None = None,
     ) -> None:
+        self._archive = context_archive
         self._llm = llm
         self._tools = tools
         self._settings = settings or AgentSettings()
@@ -64,7 +69,7 @@ class AgentService:
         """执行一轮「提问 → 模型 → 工具 → 模型 → … → 最终回答」。
 
         事件流以 ``TurnCompleted`` 或 ``TurnFailed`` 结束（取消时以
-        ``CancelledError`` 结束）。只有最终问答会写入 ``session``；
+        ``CancelledError`` 结束）。中断时也保留有效进度，原始记录另存供归档；
         已加载技能的正文由 ``loadSkill`` 记录在会话中，跨轮复用。
         """
         prompt = prompt.strip()
@@ -72,11 +77,17 @@ class AgentService:
             yield TurnFailed(message="输入为空")
             return
 
+        if session.state != "idle":
+            yield TurnFailed(message="会话正忙，不能执行其他任务")
+            return
+        if session.needs_compaction:
+            yield TurnFailed(message="上下文已达到 80%，请先执行 /compact")
+            return
+        session.state = "running"
         started_at = time.perf_counter()
-        yield TurnStarted(prompt=prompt)
 
         # 本轮工作消息：历史 + 本轮提问 + 工具调用中间结果。
-        # 只有最终问答会在成功时写回 session.conversation。
+        # 成功轮次保留工具往返，原始结果另外记录（不受截断影响）。
         working: list[ChatMessage] = list(session.conversation.messages())
         working.append(ChatMessage.user(prompt))
         # 已加载技能在轮次开始时注入一次；轮内新加载的正文已经作为工具结果
@@ -84,15 +95,25 @@ class AgentService:
         loaded_skills = session.conversation.loaded_skills.render()
 
         tool_call_count = 0
+        chunks: list[str] = []
+        streaming = False
+        active_tool_id: str | None = None
+        completed = False
+        if not session.archive_messages:
+            session.archive_messages.extend(session.conversation.messages())
+        session.archive_messages.append(ChatMessage.user(prompt))
 
         try:
+            yield TurnStarted(prompt=prompt)
             for iteration in range(1, self._settings.max_iterations + 1):
                 working = self._sync_system_prompt(session, working, loaded_skills)
                 yield IterationStarted(iteration=iteration, max_iterations=self._settings.max_iterations)
 
                 accumulator = ToolCallAccumulator()
-                chunks: list[str] = []
+                chunks = []
+                streaming = True
                 stream_error: str | None = None
+                usage: TokenUsage | None = None
 
                 async for event in self._llm.stream_chat(working, self._tools.definitions()):
                     if isinstance(event, TextDelta):
@@ -101,18 +122,47 @@ class AgentService:
                             yield AssistantTextDelta(text=event.text)
                     elif isinstance(event, ToolCallDelta):
                         accumulator.feed(event)
+                    elif isinstance(event, TokenUsage):
+                        usage = event
                     elif isinstance(event, StreamFailed):
                         stream_error = event.message
 
                 if stream_error:
                     raise LLMError(stream_error)
 
+                streaming = False
                 content = "".join(chunks)
                 calls = accumulator.build()
                 yield IterationCompleted(iteration=iteration, content=content, tool_calls=calls)
 
+                assistant = ChatMessage.assistant(content, calls)
+                session.archive_messages.append(assistant)
+                working.append(assistant)
+                measured = (
+                    usage.prompt_tokens + (usage.completion_tokens or estimate_context([assistant]))
+                    if usage
+                    else estimate_context(working, self._tools.definitions())
+                )
+                session.context_tokens = measured
+                if measured >= self._settings.context_window * 0.8:
+                    session.needs_compaction = True
+
+                if session.needs_compaction and calls:
+                    # 补齐工具协议但不执行工具；压缩后不自动恢复旧任务。
+                    for call in calls:
+                        skipped = ChatMessage.tool_result(call.id, "上下文达到阈值，未执行；请先 /compact")
+                        working.append(skipped)
+                        session.archive_messages.append(skipped)
+                    session.conversation.replace_history([m for m in working if m.role is not Role.SYSTEM])
+                    yield ContextWarning(tokens=measured, window=self._settings.context_window)
+                    yield TurnFailed(message="上下文已达到 80%，已暂停工具循环，请执行 /compact")
+                    return
+
                 if not calls:
-                    session.conversation.add_turn(prompt, content)
+                    session.conversation.replace_history([m for m in working if m.role is not Role.SYSTEM])
+                    if session.needs_compaction:
+                        yield ContextWarning(tokens=measured, window=self._settings.context_window)
+                    completed = True
                     yield TurnCompleted(
                         text=content,
                         iterations=iteration,
@@ -121,20 +171,30 @@ class AgentService:
                     )
                     return
 
-                # 先把「模型要调用工具」这一步写回工作消息
-                working.append(ChatMessage.assistant(content, calls))
-
+                tool_messages_start = len(working)
                 for call in calls:
                     tool_call_count += 1
                     yield ToolCallStarted(call=call)
                     tool_started_at = time.perf_counter()
+                    active_tool_id = call.id
                     outcome = await self._invoke_tool(call)
                     working.append(ChatMessage.tool_result(call.id, self._limit_tool_output(outcome.content)))
+                    session.archive_messages.append(ChatMessage.tool_result(call.id, outcome.content))
+                    active_tool_id = None
                     yield ToolCallFinished(
                         call=call,
                         outcome=outcome,
                         elapsed_s=time.perf_counter() - tool_started_at,
                     )
+
+                # 工具结果可能很大，在下一次请求之前再补计新增消息。
+                session.context_tokens = measured + estimate_context(working[tool_messages_start:])
+                if session.context_tokens >= self._settings.context_window * 0.8:
+                    session.needs_compaction = True
+                    session.conversation.replace_history([m for m in working if m.role is not Role.SYSTEM])
+                    yield ContextWarning(tokens=session.context_tokens, window=self._settings.context_window)
+                    yield TurnFailed(message="工具结果使上下文达到 80%，请执行 /compact 后继续")
+                    return
 
             yield TurnFailed(
                 message=(
@@ -143,12 +203,89 @@ class AgentService:
                 )
             )
         except asyncio.CancelledError:
-            # 用户中断：不写历史，原样向上传递，让 UI 决定如何提示
             raise
         except LLMError as exc:
             yield TurnFailed(message=str(exc))
         except Exception as exc:  # pragma: no cover - 防御性兜底，避免 UI 卡死
             yield TurnFailed(message=f"未预期错误：{type(exc).__name__}: {exc}")
+        finally:
+            if streaming and chunks:
+                partial = ChatMessage.assistant("".join(chunks) + "\n[回复因错误或中断而未完成]")
+                working.append(partial)
+                session.archive_messages.append(partial)
+            # 可能在工具调用开始前、执行中或两个工具之间中断。
+            for index in range(len(working) - 1, -1, -1):
+                message = working[index]
+                if message.role is Role.ASSISTANT and message.tool_calls:
+                    answered = {m.tool_call_id for m in working[index + 1 :] if m.role is Role.TOOL}
+                    for call in message.tool_calls:
+                        if call.id not in answered:
+                            text = (
+                                "工具执行中断，结果未知，可能已有副作用；继续前请检查实际状态。"
+                                if call.id == active_tool_id
+                                else "工具未执行：本轮已中断。"
+                            )
+                            result = ChatMessage.tool_result(call.id, text)
+                            working.append(result)
+                            session.archive_messages.append(result)
+                    break
+            session.conversation.replace_history([m for m in working if m.role is not Role.SYSTEM])
+            if not completed:
+                session.context_tokens = estimate_context(working, self._tools.definitions())
+                session.needs_compaction = (
+                    session.needs_compaction or session.context_tokens >= self._settings.context_window * 0.8
+                )
+            session.state = "idle"
+
+    async def compact(self, session: ChatSession) -> str:
+        """归档 → 无工具摘要 → 原子替换。失败/取消保留历史和输入锁。"""
+        if session.state != "idle":
+            raise RuntimeError("会话正忙，不能压缩")
+        if self._archive is None:
+            raise RuntimeError("未配置上下文归档目录")
+        session.state = "compacting"
+        try:
+            messages = list(session.archive_messages or session.conversation.messages())
+            current_system = session.conversation.render_system_prompt()
+            if current_system and (not messages or messages[0].content != current_system):
+                messages.insert(0, ChatMessage.system(current_system))
+            archive_id, timestamp = await asyncio.to_thread(self._archive.save, messages)
+            # 原 System Prompt 也是待总结数据，不作为压缩调用的指令。
+            history = "\n".join(json.dumps(message.to_wire(), ensure_ascii=False) for message in messages)
+            chunks: list[str] = []
+            finished = False
+            async for event in self._llm.stream_chat(
+                [ChatMessage.system(COMPACT_PROMPT), ChatMessage.user(history)], ()
+            ):
+                if isinstance(event, TextDelta):
+                    chunks.append(event.text)
+                elif isinstance(event, (ToolCallDelta, StreamFailed)):
+                    raise LLMError(event.message if isinstance(event, StreamFailed) else "压缩响应包含工具调用")
+                elif isinstance(event, StreamCompleted):
+                    if event.finish_reason not in (None, "stop"):
+                        raise LLMError(f"摘要未完整生成：{event.finish_reason}")
+                    finished = True
+            summary = "".join(chunks).strip()
+            if not finished or not summary:
+                raise LLMError("压缩未返回完整摘要")
+            if estimate_text(summary) > 5500:
+                raise LLMError("摘要超过约 5,000 Tokens 的预算，请重新 /compact")
+            note = (
+                f"此前上下文已于 {timestamp} 完成压缩，原始上下文保存在编号为 {archive_id} "
+                "的归档文件中。如需查找历史信息，请使用 recallContext 工具。"
+            )
+            replacement = ChatMessage.assistant(summary + "\n\n" + note)
+            prefix = [ChatMessage.system(current_system)] if current_system.strip() else []
+            tokens = estimate_context([*prefix, replacement], self._tools.definitions())
+            if tokens >= self._settings.context_window * 0.8:
+                raise LLMError("摘要与 System Prompt/工具定义仍超过阈值，请检查模型窗口设置")
+            session.conversation.replace_history([replacement])
+            session.archive_messages = list(session.conversation.messages())
+            session.context_tokens = tokens
+            session.needs_compaction = False
+            return note
+        finally:
+            session.state = "idle"
 
     async def _invoke_tool(self, call: ToolCall) -> ToolOutcome:
         """工具执行永不向上抛异常：失败信息本身就是给模型的上下文。"""

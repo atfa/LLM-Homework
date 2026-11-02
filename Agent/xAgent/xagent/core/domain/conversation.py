@@ -1,4 +1,4 @@
-"""会话历史（只保存最终问答）与已加载技能正文。"""
+"""会话历史（含成功轮次的工具往返）与已加载技能正文。"""
 
 from __future__ import annotations
 
@@ -12,9 +12,8 @@ from .skills import LoadedSkills, merge_system_prompt
 class Conversation:
     """一段多轮对话。
 
-    工具调用的中间消息属于「本轮工作区」，由应用层临时维护，
-    不会写入这里；这里只保留 user / assistant 的最终问答，
-    与原始脚本 ``history`` 的语义一致。
+    成功轮次保留 user / assistant / tool 消息，供后续推理与压缩。
+    压缩时仅替换历史，不改变 System Prompt 或已加载技能。
 
     例外是 ``loadSkill`` 加载的技能正文：它被记录在 ``loaded_skills`` 中，
     每轮随 System Prompt 注入，避免模型在后续轮次重复加载同一个技能。
@@ -52,6 +51,10 @@ class Conversation:
             if message.role is Role.SYSTEM:
                 raise ValueError("system 提示词请通过 system_prompt 设置")
             self._messages.append(message)
+
+    def replace_history(self, messages: list[ChatMessage]) -> None:
+        """仅替换历史；保留 System Prompt 和已加载技能。"""
+        self._messages = list(messages)
 
     def clear(self) -> None:
         self._messages.clear()

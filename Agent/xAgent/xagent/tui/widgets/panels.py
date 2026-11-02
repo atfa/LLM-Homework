@@ -25,14 +25,18 @@ class Sidebar(VerticalScroll):
         self._settings = settings
         self._session_body = Static("", classes="sidebar-body")
         self._tools_body = Static("", classes="sidebar-body")
+        self._mcp_body = Static("加载中…", classes="sidebar-body", markup=False)
+        self._tools_title = Static("", classes="section-title")
         self._skills_title = Static("", id="sidebar-skills-title", classes="section-title")
         self._skills_body = Static("", id="sidebar-skills-body", classes="sidebar-body")
 
     def compose(self) -> ComposeResult:
         yield Static("会话", classes="section-title")
         yield self._session_body
-        yield Static(f"工具 · {len(self._info.tools)}", classes="section-title")
+        yield self._tools_title
         yield self._tools_body
+        yield Static("MCP 服务器与工具", classes="section-title")
+        yield self._mcp_body
         yield self._skills_title
         yield self._skills_body
         yield Static("Ctrl+B 收起侧栏 · F1 帮助", classes="sidebar-hint")
@@ -42,7 +46,13 @@ class Sidebar(VerticalScroll):
         self.refresh_skills(self._info.skills)
         self.refresh_session(None)
 
+    def refresh_mcp(self, info: RuntimeInfo, text: str) -> None:
+        self._info = info
+        self._mcp_body.update(text)
+        self._render_tools()
+
     def _render_tools(self) -> None:
+        self._tools_title.update(f"工具 · {len(self._info.tools)}")
         body = Text()
         for definition in self._info.tools:
             body.append(f"• {definition.name}\n", style="bold")
@@ -90,6 +100,9 @@ class StatusBar(Static):
     def __init__(self, model: str, id: str | None = "status") -> None:
         super().__init__("", id=id)
         self._model = model
+        self._context_tokens = 0
+        self._context_window = 128_000
+        self._context_default = True
         self._state = "idle"
         self._label = "就绪"
         self._iteration = 0
@@ -137,6 +150,12 @@ class StatusBar(Static):
         self._label = "已中断"
         self._refresh_status()
 
+    def set_context(self, tokens: int, window: int, *, default: bool = False) -> None:
+        self._context_tokens = tokens
+        self._context_window = window
+        self._context_default = default
+        self._refresh_status()
+
     def _refresh_status(self) -> None:
         colors = {
             "idle": "green",
@@ -146,6 +165,16 @@ class StatusBar(Static):
         }
         icons = {"idle": "●", "thinking": "◐", "tool": "🔧", "error": "✖"}
         text = Text()
+        window = self._context_window
+        window_label = f"{window / 1000:.3f}".rstrip("0").rstrip(".") + "k"
+        tokens_label = f"{self._context_tokens / 1000:.3f}".rstrip("0").rstrip(".") + "k"
+        suffix = "（默认）" if self._context_default else ""
+        color = "yellow" if self._context_tokens >= window * 0.8 else "cyan"
+        # 向下取整，避免未达到阈值时显示为 80%。
+        basis_points = self._context_tokens * 10_000 // window if window > 0 else 0
+        percentage = f"{basis_points // 100}.{basis_points % 100:02d}%"
+        text.append(f"上下文 {tokens_label} / {window_label}{suffix} Tokens ({percentage})", style=f"bold {color}")
+        text.append("  │  ", style="dim")
         text.append(f"{icons[self._state]} ", style=f"bold {colors[self._state]}")
         text.append(self._label)
         text.append("  │  ", style="dim")

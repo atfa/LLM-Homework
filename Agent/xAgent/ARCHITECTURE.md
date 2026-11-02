@@ -74,7 +74,7 @@ flowchart TB
 | 领域 | `xagent.core.domain` | 标准库 | 不可变数据模型、不变量、纯算法 |
 | 端口 | `xagent.core.ports` | `core.domain` | `LLMClient`、`ToolRegistry` 两个 Protocol |
 | 应用 | `xagent.core.application` | `core.domain`、`core.ports` | 工具循环、会话、事件、运行参数 |
-| 基础设施 | `xagent.core.infrastructure` | `core.domain`、`core.ports` | 配置、SSE 客户端、沙箱、17 个工具 |
+| 基础设施 | `xagent.core.infrastructure` | `core.domain`、`core.ports` | 配置、SSE 客户端、沙箱、18 个工具 |
 | 界面 | `xagent.tui`（未来 `xagent.web` 等） | `core.application`、`core.domain`、`core.ports`、本层 | Textual TUI、展示格式化 |
 | 组合根 | `xagent.core.composition` | core 内部全部 | 依赖装配，决定「用哪个实现」 |
 | 启动 | `xagent.entrypoint` | core + 界面包 | 参数解析、启动 TUI |
@@ -113,7 +113,7 @@ sequenceDiagram
                 S-->>UI: ToolCallFinished(outcome, elapsed)
             end
         else 没有工具调用
-            S->>S: session.conversation.add_turn(prompt, content)
+            S->>S: session.conversation.replace_history(working 历史)
             S-->>UI: TurnCompleted
         end
     end
@@ -121,10 +121,15 @@ sequenceDiagram
 
 关键点：
 
-- **工作消息 vs 历史**：`working` 只活在 `run_turn` 内，包含 assistant 的 `tool_calls`
-  与 tool 结果；`session.conversation` 只记录最终问答。唯一例外是 `loadSkill`
-  加载的技能正文：它记录在 `Conversation.loaded_skills` 中，随 System Prompt
-  跨轮注入，避免重复加载。
+- **工作消息 vs 历史**：成功轮次将 `working` 中 user、assistant、tool 消息保存为历史，
+  回传结果仍受截断限制。`session.archive_messages` 单独保留原始完整结果与失败轮次，供归档。
+  已加载技能在 `Conversation.loaded_skills` 中，随 System Prompt 跨轮注入。
+- **上下文状态**：`idle / running / compacting` 互斥；每次响应使用 API usage 或全文估算，
+  达到窗口 80% 锁定普通输入并暂停工具循环，工具结果补计也可触发暂停。
+- **压缩事务**：`compact(session)` 先调用应用层 `ContextArchive` 协议保存 JSONL，
+  再以专用 Prompt、空工具集请求约 5,000 Tokens 摘要。校验成功且低于阈值才替换历史，
+  System Prompt、技能和注册工具不变；失败/取消不替换、不解锁。具体本地存储与
+  `recallContext` 关键词检索在 `infrastructure/context.py`，由组合根共享注入。
 - **单轮上限**：`AgentSettings.max_iterations` 同时限制「模型调用次数」，
   超限返回 `TurnFailed`，避免 `while True` 死循环。
 - **失败也是上下文**：工具异常被 `ToolRegistryImpl` 归一化为 `ToolOutcome.failed`，
@@ -385,7 +390,7 @@ class MyProviderClient:
 
 | 决策 | 原因 | 代价 |
 | --- | --- | --- |
-| 不引入 LangChain / 框架 | 17 个工具、单循环，框架抽象成本高于收益 | 需要自己维护消息协议 |
+| 不引入 LangChain / 框架 | 18 个工具、单循环，框架抽象成本高于收益 | 需要自己维护消息协议 |
 | 自定义 `ToolRegistry` | 便于测试、错误归一化、线程池执行 | 少量样板代码 |
 | 应用层产出事件而非回调 | UI 可自由组合、测试可断言事件序列 | UI 需要写一个 `async for` |
 | 消息用不可变 dataclass | 防止历史被意外修改，便于并发推理 | 构造时略啰嗦 |
@@ -414,10 +419,10 @@ class MyProviderClient:
 
 ## 11. 常见问题
 
-**Q: 为什么 `history` 里看不到工具调用？**
+**Q: 如何控制包含工具调用的历史大小？**
 
-这是刻意设计：工具细节只属于本轮 `working` 消息，历史只保留最终问答，
-避免上下文膨胀。需要审计时，UI 的工具卡片和日志就是审计记录。
+成功轮次保留工具往返；达到模型窗口 80% 时暂停输入，使用 `/compact` 归档并替换为摘要。
+原始工具结果不截断归档，摘要遗漏的细节可通过 `recallContext` 本地关键词检索。
 
 例外是 `loadSkill`：加载成功的技能正文会记录到 `Conversation.loaded_skills`，
 并随 System Prompt 跨轮注入。否则后续轮次既看不到正文，也无法判断是否加载过，
@@ -425,7 +430,8 @@ class MyProviderClient:
 
 **Q: 为什么取消后历史是空的？**
 
-`TurnCompleted` 才写入历史；取消或失败都不写，避免「半句话」污染后续对话。
+取消或普通失败不写入会话历史，但已收到的完整消息仍保留供归档。
+上下文阈值暂停时保存已有工具往返，等待 `/compact`。
 
 **Q: 为什么 UI 里没有 `requests`？**
 

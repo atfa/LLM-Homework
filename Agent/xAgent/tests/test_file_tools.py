@@ -18,10 +18,11 @@ def invoke(registry: ToolRegistryImpl, name: str, **arguments: object) -> ToolOu
     return asyncio.run(registry.invoke(call))
 
 
-def test_default_registry_has_seventeen_tools(tmp_path: Path) -> None:
+def test_default_registry_has_eighteen_tools(tmp_path: Path) -> None:
     registry = build_tool_registry(tmp_path)
-    assert len(registry) == 17
+    assert len(registry) == 18
     assert registry.names() == (
+        "recallContext",
         "getDate",
         "isLeapYear",
         "getCwd",

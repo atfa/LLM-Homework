@@ -73,8 +73,9 @@ def test_discovers_skills_from_startup_cwd(tmp_path: Path, monkeypatch: pytest.M
     catalog = SkillCatalog.discover()
 
     assert catalog.names == ("excel", "pdf")
-    assert catalog.get("pdf") is not None
-    assert catalog.get("pdf").description == "处理 PDF 文件"
+    skill = catalog.get("pdf")
+    assert skill is not None
+    assert skill.description == "处理 PDF 文件"
     assert catalog.project_root == tmp_path.resolve()
 
 
@@ -109,7 +110,9 @@ def test_init_does_not_decode_skill_body(tmp_path: Path) -> None:
     catalog = SkillCatalog.discover(tmp_path)
 
     assert catalog.names == ("binary",)
-    assert catalog.get("binary").description == "只读元数据"
+    skill = catalog.get("binary")
+    assert skill is not None
+    assert skill.description == "只读元数据"
 
 
 def test_duplicate_skill_names_keep_first_in_directory_order(tmp_path: Path) -> None:
@@ -120,7 +123,9 @@ def test_duplicate_skill_names_keep_first_in_directory_order(tmp_path: Path) -> 
     catalog = SkillCatalog.discover(tmp_path)
 
     assert catalog.names == ("same",)
-    assert catalog.get("same").directory == first.resolve()
+    skill = catalog.get("same")
+    assert skill is not None
+    assert skill.directory == first.resolve()
 
 
 def test_init_loads_only_metadata_into_prompt(tmp_path: Path) -> None:
@@ -321,9 +326,9 @@ def test_skill_body_enters_context_only_after_load_skill(tmp_path: Path) -> None
     assert tool_result.role is Role.TOOL
     assert "只在调用 loadSkill 后才应该进入上下文" in tool_result.content
 
-    # 历史仍然只保留最终问答，但正文会作为「已加载技能」跨轮复用。
+    # 历史保留工具往返，正文也作为「已加载技能」跨轮复用。
     history = session.conversation.history()
-    assert [message.role for message in history] == [Role.USER, Role.ASSISTANT]
+    assert [message.role for message in history] == [Role.USER, Role.ASSISTANT, Role.TOOL, Role.ASSISTANT]
     assert history[-1].content == "已加载技能"
     assert session.conversation.loaded_skills.names() == ("pdf",)
     assert BODY.strip() in session.conversation.render_system_prompt()
@@ -363,12 +368,14 @@ def test_loaded_skill_is_reused_on_next_turn(tmp_path: Path) -> None:
     second_turn = llm.calls[2]
     assert second_turn[0].role is Role.SYSTEM
     assert BODY.strip() in second_turn[0].content
-    # 正文只出现一次，且没有额外的工具往返。
-    assert sum(BODY.strip() in message.content for message in second_turn) == 1
-    assert all(message.role is not Role.TOOL for message in second_turn)
+    # System Prompt 与原始工具结果均保留正文，但第二轮没有额外的工具往返。
+    assert sum(BODY.strip() in message.content for message in second_turn) == 2
+    assert len(llm.tool_requests) == 3
 
     assert [message.role for message in runtime.session.conversation.history()] == [
         Role.USER,
+        Role.ASSISTANT,
+        Role.TOOL,
         Role.ASSISTANT,
         Role.USER,
         Role.ASSISTANT,

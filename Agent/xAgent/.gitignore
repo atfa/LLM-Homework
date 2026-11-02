@@ -5,3 +5,5 @@ __pycache__/
 .ruff_cache/
 config.ini
 *.egg-info/
+.agents/context/
+.agents/sessions/

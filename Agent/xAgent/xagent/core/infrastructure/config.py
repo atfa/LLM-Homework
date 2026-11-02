@@ -35,6 +35,8 @@ class LLMSettings:
     model: str
     timeout_s: float = 90.0
     temperature: float | None = None
+    context_window: int = 128_000
+    context_window_default: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +54,13 @@ class SearchSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class ToolSettings:
+    cli_timeout_s: int = 30
+    fetch_timeout_s: float = 30.0
+    fetch_connect_timeout_s: float = 10.0
+
+
+@dataclass(frozen=True, slots=True)
 class AppConfig:
     llm: LLMSettings
     workspace: Path
@@ -61,6 +70,7 @@ class AppConfig:
     theme: str = "textual-dark"
     config_path: Path | None = None
     search: SearchSettings = SearchSettings()
+    tools: ToolSettings = ToolSettings()
 
 
 def _project_config_path() -> Path:
@@ -212,7 +222,7 @@ def load_config(
         )
     if not base_url.startswith(("http://", "https://")):
         raise ConfigurationError(f"base_url 必须以 http:// 或 https:// 开头，收到 {base_url!r}")
-    if "your-" in api_key.lower() or api_key.lower() in {"sk-xxx", "changeme"}:
+    if "your-" in api_key.lower() or api_key.lower().startswith("fake-") or api_key.lower() in {"sk-xxx", "changeme"}:
         raise ConfigurationError("api_key 仍是模板占位值，请填写真实 Key")
 
     timeout_raw = _env("XAGENT_TIMEOUT") or llm_section.get("timeout", "")
@@ -232,6 +242,15 @@ def load_config(
             temperature = float(temperature_raw)
         except ValueError as exc:
             raise ConfigurationError(f"temperature 必须是数字，收到 {temperature_raw!r}") from exc
+
+    context_window_raw = _env("XAGENT_CONTEXT_WINDOW") or llm_section.get("context_window", "")
+    context_window = _int_or(
+        context_window_raw,
+        128_000,
+        label="context_window",
+    )
+    if context_window < 1:
+        raise ConfigurationError("context_window 必须 >= 1")
 
     agent_section = parser["agent"] if "agent" in parser else {}
     max_iterations = _int_or(
@@ -259,6 +278,13 @@ def load_config(
     if not workspace_path.is_dir():
         raise ConfigurationError(f"工作目录不存在或不是目录：{workspace_path}")
 
+    tool_section = parser["tools"] if "tools" in parser else {}
+    cli_timeout = _int_or(tool_section.get("cli_timeout"), 30, label="[tools] cli_timeout")
+    fetch_timeout = _float_or(tool_section.get("fetch_timeout"), 30.0, label="[tools] fetch_timeout")
+    connect_timeout = _float_or(tool_section.get("fetch_connect_timeout"), 10.0, label="[tools] fetch_connect_timeout")
+    if not 1 <= cli_timeout <= 600 or fetch_timeout <= 0 or connect_timeout <= 0:
+        raise ConfigurationError("[tools] cli_timeout 必须在 1~600 之间；网页超时必须大于 0")
+
     return AppConfig(
         llm=LLMSettings(
             base_url=base_url,
@@ -266,6 +292,8 @@ def load_config(
             model=model,
             timeout_s=timeout_s,
             temperature=temperature,
+            context_window=context_window,
+            context_window_default=not context_window_raw.strip(),
         ),
         workspace=workspace_path,
         max_iterations=max_iterations,
@@ -274,4 +302,37 @@ def load_config(
         theme=(_env("XAGENT_THEME") or agent_section.get("theme", "textual-dark")).strip() or "textual-dark",
         config_path=path,
         search=_load_search_settings(parser, path),
+        tools=ToolSettings(cli_timeout, fetch_timeout, connect_timeout),
     )
+
+
+DEFAULT_CONFIG = """# 填写真实连接信息后重新启动；环境变量仍可覆盖配置。
+[llm]
+base_url = https://api.example.com/v1
+api_key = fake-api-key-replace-me
+model = fake-model-replace-me
+timeout = 90
+temperature =
+context_window = 128000
+
+[agent]
+workspace = .
+max_iterations = 20
+max_tool_output_chars = 30000
+theme = textual-dark
+system_prompt =
+
+[tools]
+cli_timeout = 30
+fetch_timeout = 30
+fetch_connect_timeout = 10
+
+[search]
+baidu_qianfan_api_key =
+endpoint = https://qianfan.baidubce.com/v2/ai_search/chat/completions
+search_source = baidu_search_v2
+top_k = 5
+timeout = 30
+recency =
+model =
+"""

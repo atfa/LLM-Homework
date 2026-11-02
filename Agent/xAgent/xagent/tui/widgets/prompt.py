@@ -18,6 +18,20 @@ from textual.message import Message
 from textual.timer import Timer
 from textual.widgets import Static, TextArea
 
+COMMANDS = {
+    "/new": "新建会话（自动保存当前会话）",
+    "/session": "选择并恢复最近会话",
+    "/save": "保存当前会话",
+    "/help": "帮助",
+    "/clear": "清空界面，保留历史",
+    "/compact": "压缩上下文",
+    "/tools": "可用工具",
+    "/mcp": "MCP 连接状态",
+    "/cwd": "工作目录",
+    "/model": "模型信息",
+    "/quit": "退出",
+}
+
 
 class PromptInput(TextArea):
     """多行输入框：Enter 发送，Shift+Enter 换行。"""
@@ -46,6 +60,10 @@ class PromptInput(TextArea):
         super().__init__(placeholder=placeholder, **kwargs)
         self._height_lines = self.MIN_LINES
 
+    @dataclass
+    class Completion(Message):
+        key: str
+
     # ---- 兼容 Input 的常用接口（测试 / 外部调用） ---------------------
     @property
     def value(self) -> str:
@@ -65,6 +83,12 @@ class PromptInput(TextArea):
         这里不调用 ``super()``：Textual 会沿 MRO 调用所有 ``_on_key``，
         再用 ``prevent_default()`` 阻止基类重复插入。
         """
+        if event.key in {"tab", "up", "down", "escape"} and self.text.startswith("/"):
+            if " " not in self.text and "\n" not in self.text:
+                event.stop()
+                event.prevent_default()
+                self.post_message(self.Completion(event.key))
+                return
         if event.key == "enter":
             event.stop()
             event.prevent_default()

@@ -17,6 +17,7 @@ import asyncio
 import concurrent.futures
 import inspect
 import json
+import os
 import threading
 from collections.abc import Mapping, Sequence
 from contextlib import AsyncExitStack
@@ -373,7 +374,13 @@ class McpClientManager:
                 env=dict(server.env) or None,
                 cwd=server.cwd or None,
             )
-            streams = await stack.enter_async_context(stdio_client(parameters))
+            # SDK 默认继承 stderr；子进程直接写终端会破坏 Textual 的差量渲染，
+            # 且绕过 Python 层的输出捕获。传入真实文件描述符，并在传输关闭后释放。
+            try:
+                errlog = stack.enter_context(open(os.devnull, "w", encoding="utf-8"))
+            except OSError as exc:
+                raise ToolError(f"无法隔离 MCP Server 标准错误输出：{exc}") from exc
+            streams = await stack.enter_async_context(stdio_client(parameters, errlog=errlog))
             return streams[0], streams[1]
 
         parameters = inspect.signature(_streamable_http).parameters

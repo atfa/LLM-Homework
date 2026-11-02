@@ -17,7 +17,7 @@ from typing import Any, cast
 import requests
 
 from ...domain.errors import LLMError
-from ...domain.events import LLMStreamEvent, StreamCompleted, StreamFailed, TextDelta, ToolCallDelta
+from ...domain.events import LLMStreamEvent, StreamCompleted, StreamFailed, TextDelta, TokenUsage, ToolCallDelta
 from ...domain.messages import ChatMessage, messages_to_wire
 from ...domain.tools import ToolDefinition
 
@@ -55,13 +55,19 @@ class ChatCompletionDecoder:
             self._done = True
             return [StreamFailed(f"模型接口返回错误：{message}")]
 
+        events: list[LLMStreamEvent] = []
+        usage = obj.get("usage")
+        if isinstance(usage, dict):
+            prompt = usage.get("prompt_tokens")
+            completion = usage.get("completion_tokens", 0)
+            if isinstance(prompt, int) and prompt > 0 and isinstance(completion, int) and completion >= 0:
+                events.append(TokenUsage(prompt, completion))
         choices = obj.get("choices") or []
         if not choices:
-            return []
+            return events
         choice = choices[0] if isinstance(choices[0], dict) else {}
         delta = choice.get("delta") or {}
 
-        events: list[LLMStreamEvent] = []
         text = delta.get("content")
         if isinstance(text, str) and text:
             events.append(TextDelta(text))
@@ -123,7 +129,11 @@ class OpenAICompatibleClient:
             "messages": messages_to_wire(messages),
             "tools": [definition.to_wire() for definition in tools],
             "stream": True,
+            "stream_options": {"include_usage": True},
         }
+        if not tools:
+            # 压缩请求不暴露工具，也不允许 function calling。
+            payload.pop("tools")
         if self._temperature is not None:
             payload["temperature"] = self._temperature
         return payload

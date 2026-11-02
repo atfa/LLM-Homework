@@ -44,7 +44,12 @@ def _validate_url(url: str) -> str:
     return url
 
 
-def fetch_web(arguments: Mapping[str, Any]) -> str:
+def fetch_web(
+    arguments: Mapping[str, Any],
+    *,
+    timeout_s: float = DEFAULT_TIMEOUT_S,
+    connect_timeout_s: float = 10,
+) -> str:
     url = arguments.get("url")
     if not isinstance(url, str):
         raise ToolError("url 必须是字符串")
@@ -60,9 +65,9 @@ def fetch_web(arguments: Mapping[str, Any]) -> str:
         "--silent",
         "--show-error",
         "--connect-timeout",
-        "10",
+        str(connect_timeout_s),
         "--max-time",
-        str(DEFAULT_TIMEOUT_S),
+        str(timeout_s),
         "-A",
         CURL_USER_AGENT,
         "-H",
@@ -77,7 +82,7 @@ def fetch_web(arguments: Mapping[str, Any]) -> str:
             command,
             capture_output=True,
             text=True,
-            timeout=DEFAULT_TIMEOUT_S + 5,
+            timeout=timeout_s + 5,
             check=False,
         )
     except FileNotFoundError as exc:
@@ -118,8 +123,15 @@ def fetch_web(arguments: Mapping[str, Any]) -> str:
     return f"# 来源 URL\n{url}\n\n# 正文内容\n\n{content}"
 
 
-def fetch_web_tools() -> tuple[tuple[ToolDefinition, ToolHandler], ...]:
-    return ((FETCH_WEB, fetch_web),)
+def fetch_web_tools(
+    *,
+    timeout_s: float = DEFAULT_TIMEOUT_S,
+    connect_timeout_s: float = 10,
+) -> tuple[tuple[ToolDefinition, ToolHandler], ...]:
+    def invoke(arguments: Mapping[str, Any]) -> str:
+        return fetch_web(arguments, timeout_s=timeout_s, connect_timeout_s=connect_timeout_s)
+
+    return ((FETCH_WEB, invoke),)
 
 
 __all__ = ["FETCH_WEB", "fetch_web", "fetch_web_tools"]

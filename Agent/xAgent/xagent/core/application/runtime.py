@@ -6,7 +6,7 @@ HTTP 客户端或工具实现。
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from ..domain.tools import ToolDefinition
@@ -43,6 +43,7 @@ class AgentRuntime:
     info: RuntimeInfo
     # createSkill 会在运行期注册新 Skill，侧栏据此刷新「当前可用」列表。
     skills_provider: Callable[[], tuple[SkillInfo, ...]] | None = None
+    mcp_loader: Callable[[], Awaitable[str]] | None = None
 
     def skills(self) -> tuple[SkillInfo, ...]:
         if self.skills_provider is None:

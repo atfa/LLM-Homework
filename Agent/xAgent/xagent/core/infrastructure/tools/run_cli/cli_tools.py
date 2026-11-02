@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 import subprocess
 from collections.abc import Mapping
+from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -225,14 +227,21 @@ def run_cli(arguments: Mapping[str, Any], cwd: str | Path | None = None) -> str:
     return _format_result(argv, completed.returncode, completed.stdout or "", completed.stderr or "")
 
 
-def run_cli_tools(workspace: str | Path) -> tuple[tuple[ToolDefinition, ToolHandler], ...]:
+def run_cli_tools(
+    workspace: str | Path,
+    *,
+    timeout_s: int = DEFAULT_TIMEOUT_S,
+) -> tuple[tuple[ToolDefinition, ToolHandler], ...]:
     """把工作目录绑定为命令的 cwd，返回可直接注册的 (定义, 处理器) 列表。"""
     root = str(Path(workspace).expanduser())
 
     def invoke(arguments: Mapping[str, Any]) -> str:
-        return run_cli(arguments, cwd=root)
+        return run_cli({"timeout_seconds": timeout_s, **arguments}, cwd=root)
 
-    return ((RUN_CLI, invoke),)
+    parameters = deepcopy(dict(RUN_CLI.parameters))
+    parameters["properties"]["timeout_seconds"]["default"] = timeout_s
+    parameters["properties"]["timeout_seconds"]["description"] = f"执行超时（秒），默认 {timeout_s}，最大 600"
+    return ((replace(RUN_CLI, parameters=parameters), invoke),)
 
 
 __all__ = [

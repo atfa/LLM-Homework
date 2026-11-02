@@ -142,6 +142,15 @@ ToolActivity.error {
 }
 
 /* ---------- 输入与状态 ---------- */
+#command-completions {
+    height: auto;
+    max-height: 12;
+    margin: 0 1;
+    padding: 0 1;
+    background: $surface;
+    border: round $accent;
+}
+
 #prompt-row {
     height: auto;
     min-height: 3;

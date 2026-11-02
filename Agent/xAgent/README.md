@@ -8,6 +8,7 @@
 > 第 15 个工具 `runCli`（调用本机任意命令行程序），
 > 第 16 个工具 `loadSkill`（按需加载 Agent Skills）、
 > 第 17 个工具 `createSkill`（按自然语言创建新 Skill 并即时生效），
+> 第 18 个工具 `recallContext`（本地关键词检索上下文归档），
 > 以及通过 `.mcp.json` 动态接入的 MCP Server 工具（Streamable HTTP / stdio）。
 
 ![xAgent TUI](docs/tui-preview.png)
@@ -49,6 +50,10 @@ cp config.ini.example config.ini     # 填写 base_url / model / api_key
 .venv/bin/python main.py             # 启动 TUI
 ```
 
+也可以直接启动：当前目录没有 `config.ini` 时，会自动创建含 fake 连接信息及完整默认参数的配置，
+显示提示对话框后退出。修改接口、模型和 API Key，再重新启动；不会自动覆盖已有配置。
+`--config` / `XAGENT_CONFIG` 可指定其他配置路径。
+
 其他入口：
 
 ```bash
@@ -57,7 +62,7 @@ cp config.ini.example config.ini     # 填写 base_url / model / api_key
 xagent                                            # pip install -e . 后的命令
 ```
 
-配置也可完全走环境变量：`XAGENT_BASE_URL`、`XAGENT_MODEL`、`XAGENT_API_KEY`、
+配置项支持环境变量覆盖（首次启动仍须先创建配置文件）：`XAGENT_BASE_URL`、`XAGENT_MODEL`、`XAGENT_API_KEY`、
 `XAGENT_WORKSPACE`、`XAGENT_MAX_ITERATIONS`、`XAGENT_TIMEOUT`、`XAGENT_TEMPERATURE`、
 `XAGENT_THEME`、`XAGENT_CONFIG`，以及联网搜索的 `XAGENT_SEARCH_API_KEY`、
 `XAGENT_SEARCH_ENDPOINT`、`XAGENT_SEARCH_SOURCE`、`XAGENT_SEARCH_TOP_K`、
@@ -71,7 +76,7 @@ xagent                                            # pip install -e . 后的命�
 │ ChatView                         │ Sidebar                   │
 │  · 用户消息                      │  · 模型 / 接口 / 目录     │
 │  · 流式 Markdown 回答            │  · 会话 id / 轮次 / 消息  │
-│  · 可展开的工具卡片（参数/结果） │  · 17 个内置工具 + MCP 工具  │
+│  · 可展开的工具卡片（参数/结果） │  · 18 个内置工具 + MCP 工具  │
 │  · 错误 / 中断提示               │  · 可用 Skills 数量与列表 │
 ├──────────────────────────────────┴───────────────────────────┤
 │ Input：Enter 发送，Shift+Enter 换行；等待左侧转圈动画        │
@@ -105,7 +110,22 @@ xagent                                            # pip install -e . 后的命�
 > 事件。`PromptInput` 会把这类事件当作普通输入插入，因此中文输入法下用回车临时
 > 输入英文 / 原样提交拼音不会误触发发送。
 
-斜杠命令：`/help`、`/clear`、`/new`、`/tools`、`/cwd`、`/model`、`/quit`。
+斜杠命令：`/help`、`/clear`、`/new`、`/save`、`/session`、`/compact`、`/tools`、`/mcp`、`/cwd`、`/model`、`/quit`。
+输入 `/` 弹出补全面板，↑↓ 选择、Tab 补全、Enter 执行、Esc 关闭。
+
+会话在每轮结束、新建和退出时自动保存至工作目录 `.agents/sessions/`；
+`/session` 打开最近会话选择面板，使用方向键选择，回车恢复，Esc 取消。
+恢复内容包括完整消息、工具调用、已加载技能及上下文计数；会话文件含敏感对话和工具结果，已默认排除出 Git。
+
+### 上下文管理
+
+- 每次模型响应后统计完整上下文（System Prompt、历史、工具定义与本轮响应）；优先使用 API usage，无 usage 时按文本估算，不是精确 tokenizer 计数。
+- `[llm] context_window`（或 `XAGENT_CONTEXT_WINDOW`）设置实际模型窗口，默认 `128000`。达到 **80%** 时提示并阻止普通输入、暂停工具循环；需 `/compact` 成功后继续。
+- `/compact` 先把所有原始消息（含工具调用参数及未截断结果）保存到项目 `.agents/context/<唯一编号>.jsonl`，再独立调用模型生成约 **5,000 Tokens** 的工作摘要；不调用工具、不继续旧任务。
+- 成功后只替换历史，保留 System Prompt、工具定义及已加载技能。摘要附归档编号、时间与检索指引；归档/摘要失败或取消均保留原历史，可重试。
+- 模型可调用 `recallContext(text="关键词", id="归档编号")` 补回细节；`id` 可省略以搜索全部归档。使用 Python 本地关键词匹配，最多返回 6 个带编号、行号、字符偏移的片段，不用 Embedding/向量库。
+
+归档默认位于工作目录，显式传入 `project_root` 则位于该项目目录。原始内容可能含敏感数据，默认已被 `.gitignore` 排除；`/new` 不删除归档，按需手动清理。
 
 ## 架构一览
 
@@ -124,7 +144,7 @@ Agent/xAgent/
 │   │   │   ├── tools.py        #     ToolDefinition / ToolCall / ToolOutcome
 │   │   │   ├── events.py       #     模型流事件（TextDelta / ToolCallDelta …）
 │   │   │   ├── accumulator.py  #     把分块 tool_calls 合并成完整调用
-│   │   │   ├── conversation.py #     只保留最终问答的历史
+│   │   │   ├── conversation.py #     保留工具往返的历史与压缩替换
 │   │   │   └── errors.py
 │   │   ├── ports/              #   抽象协议（依赖倒置）
 │   │   │   ├── llm.py          #     LLMClient.stream_chat(...)
@@ -244,7 +264,9 @@ TUI 不接触 SSE、HTTP 或工具实现，只消费（`tui/` 是参考实现，
 
 xAgent 启动时读取**工作目录**（`--workspace` / `XAGENT_WORKSPACE`，默认当前目录）
 下的 `.mcp.json`，使用 MCP Python SDK 连接 Server，并在 `list_tools()` 之后把
-远端工具动态注册进现有的 `ToolRegistry`。支持两种标准传输：
+远端工具动态注册进现有的 `ToolRegistry`。先进入 TUI，再后台连接和发现工具；
+侧栏动态显示服务器连接状态及各自工具，加载期间仍可使用内置工具。
+支持两种标准传输：
 
 ```json
 {
@@ -270,8 +292,8 @@ xAgent 启动时读取**工作目录**（`--workspace` / `XAGENT_WORKSPACE`，�
   LLM 通过同一套 Function Calling 协议调用；
 - 工具名冲突时自动加服务器前缀，内部维护
   `暴露名 → (Server, 原始工具名)` 映射；
-- 单个 Server 连不上时只输出 `[MCP] 无法连接…已跳过该服务器的工具`，
-  不会影响本地工具和其他 Server；
+- 单个 Server 连不上时在侧栏显示错误，跳过该服务器的工具，
+  不会影响本地工具和其他 Server（`--list-tools` 模式仍输出终端日志）；
 - SSE 配置会被跳过并给出提示。
 
 用 `python main.py --list-tools` 可以在不调用模型的情况下检查 MCP 工具发现结果。
@@ -498,6 +520,10 @@ max_tool_output_chars = 30000  # 工具结果回传模型的上限
 [search]
 baidu_qianfan_api_key = bce-v3/ALTAK-xxx/xxx   # 可选：联网搜索工具
 ```
+
+完整配置见 `config.ini.example`。省略可选参数会使用内置默认值。
+另支持 `[tools]`：`cli_timeout = 30`、`fetch_timeout = 30`、`fetch_connect_timeout = 10`（秒）。
+MCP 每台服务器的连接超时继续通过 `.mcp.json` 中的 `timeout` 配置。
 
 `config.ini` 已被 `.gitignore` 忽略；仓库里只提交模板。
 

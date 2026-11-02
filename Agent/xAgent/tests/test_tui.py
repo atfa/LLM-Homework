@@ -33,6 +33,21 @@ def chat_widgets(tui: XAgentApp, kind: type[Widget]) -> list[Widget]:
     return [child for child in tui.chat.children if isinstance(child, kind)]
 
 
+def test_context_status_uses_k_units(tmp_path: Path) -> None:
+    runtime = make_runtime(tmp_path, [])
+
+    async def scenario() -> None:
+        tui = XAgentApp(runtime)
+        async with tui.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            tui.status.set_context(12345, 128001)
+            assert "上下文 12.345k / 128.001k Tokens" in str(tui.status.render())
+            tui.status.set_context(0, 128000, default=True)
+            assert "上下文 0k / 128k（默认） Tokens" in str(tui.status.render())
+
+    asyncio.run(scenario())
+
+
 def test_tui_turn_renders_messages(tmp_path: Path) -> None:
     runtime = make_runtime(
         tmp_path,
@@ -131,7 +146,8 @@ def test_tui_escape_cancels_generation(tmp_path: Path) -> None:
             await wait_until(lambda: tui.status.state == "idle")
             await pilot.pause()
 
-            assert runtime.session.turn_count == 0
+            assert runtime.session.turn_count == 1
+            assert "未完成" in runtime.session.conversation.history()[-1].content
             notices = [notice for notice in chat_widgets(tui, NoticeMessage) if isinstance(notice, NoticeMessage)]
             assert any("已中断" in notice.message for notice in notices)
 
@@ -152,6 +168,7 @@ def test_tui_shift_enter_supports_multiline_input(tmp_path: Path) -> None:
 
             assert tui.prompt_input.value == "第一行\n第二行"
             assert runtime.session.turn_count == 0
+            assert tui.prompt_input.styles.height is not None
             assert tui.prompt_input.styles.height.value == 2
 
             await pilot.press("enter")
@@ -248,6 +265,7 @@ def test_tui_paste_keeps_multiple_lines(tmp_path: Path) -> None:
             await pilot.pause()
 
             assert tui.prompt_input.value == "粘贴第一行\n粘贴第二行"
+            assert tui.prompt_input.styles.height is not None
             assert tui.prompt_input.styles.height.value == 2
 
     asyncio.run(scenario())

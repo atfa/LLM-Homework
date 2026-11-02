@@ -6,7 +6,8 @@ import sys
 from pathlib import Path
 
 from ...domain.skills import LoadedSkills
-from ..config import SearchSettings
+from ..config import SearchSettings, ToolSettings
+from ..context import LocalContextArchive, context_tools
 from ..mcp import McpClientManager, McpToolBridge, load_mcp_config
 from ..skills import SkillCatalog, skill_tools
 from .date_time import datetime_tools
@@ -57,6 +58,9 @@ def build_tool_registry(
     skills: SkillCatalog | None = None,
     loaded_skills: LoadedSkills | None = None,
     mcp: McpClientManager | None = None,
+    context_archive: LocalContextArchive | None = None,
+    connect_mcp: bool = True,
+    tool_settings: ToolSettings | None = None,
 ) -> ToolRegistryImpl:
     """构建绑定到指定工作目录的默认工具集。
 
@@ -69,11 +73,12 @@ def build_tool_registry(
     ``loaded_skills`` 是会话级已加载技能状态；与 ``ChatSession`` 共享同一实例
     后，加载过的正文才能跨轮注入 System Prompt，并被后续 ``loadSkill`` 去重。
 
-    ``mcp`` 为空时自动读取 ``<workspace>/.mcp.json`` 并连接 MCP Server。
-    没有任何 MCP 配置或连接失败都不影响内置工具。
+    ``connect_mcp=False`` 时只装配本地工具，由运行时在 TUI 挂载后异步加载 MCP。
+    其他调用方保留同步连接的默认行为；连接失败不影响内置工具。
     """
     sandbox = Sandbox(workspace)
     settings = search or SearchSettings()
+    tool_config = tool_settings or ToolSettings()
     skill_catalog = skills if skills is not None else SkillCatalog.discover(workspace)
     client = QianfanSearchClient(
         api_key=settings.api_key,
@@ -86,16 +91,20 @@ def build_tool_registry(
     )
     registry = ToolRegistryImpl()
     for definition, handler in (
+        *context_tools(context_archive or LocalContextArchive(workspace)),
         *datetime_tools(),
         *file_tools(sandbox),
         *web_search_tools(client),
-        *fetch_web_tools(),
-        *run_cli_tools(workspace),
+        *fetch_web_tools(
+            timeout_s=tool_config.fetch_timeout_s,
+            connect_timeout_s=tool_config.fetch_connect_timeout_s,
+        ),
+        *run_cli_tools(workspace, timeout_s=tool_config.cli_timeout_s),
         *skill_tools(skill_catalog, loaded_skills),
     ):
         registry.register(definition, handler)
 
-    mcp_manager = mcp if mcp is not None else _connect_mcp(workspace)
+    mcp_manager = mcp if mcp is not None else (_connect_mcp(workspace) if connect_mcp else None)
     if mcp_manager is not None:
         bridge = McpToolBridge(mcp_manager, reserved_names=registry.names())
         for definition, handler in bridge.entries():

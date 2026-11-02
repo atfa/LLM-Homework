@@ -202,6 +202,13 @@ def test_create_skill_refreshes_session_prompt_and_is_loadable_in_same_turn(tmp_
     assert "自动创建的技能" in tool_result.content
 
     history = runtime.session.conversation.history()
-    assert [message.role for message in history] == [Role.USER, Role.ASSISTANT]
+    assert [message.role for message in history] == [
+        Role.USER,
+        Role.ASSISTANT,
+        Role.TOOL,
+        Role.ASSISTANT,
+        Role.TOOL,
+        Role.ASSISTANT,
+    ]
     assert history[-1].content == "已完成"
     assert events

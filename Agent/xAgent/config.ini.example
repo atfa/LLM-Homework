@@ -11,37 +11,47 @@ base_url = https://api.openai.com/v1
 model = gpt-4o-mini
 api_key = sk-your-key
 # 单次请求读超时（秒）
-# timeout = 90
+timeout = 90
 # 可选：采样温度
-# temperature = 0.2
+temperature =
+# 实际模型上下文窗口（Tokens）；也可用 XAGENT_CONTEXT_WINDOW 覆盖
+# 达到 80% 时暂停新提示词，输入 /compact 压缩
+context_window = 128000
 
 [agent]
 # 单轮问答内最多调用模型多少次（防止工具循环失控）
-# max_iterations = 20
+max_iterations = 20
 # 单个工具结果回传模型的最大字符数
-# max_tool_output_chars = 30000
+max_tool_output_chars = 30000
 # 沙箱工作目录，默认启动时的当前目录
-# workspace = .
+workspace = .
 # TUI 主题
-# theme = textual-dark
+theme = textual-dark
 # 自定义 system prompt（支持多行缩进）
-# system_prompt =
+system_prompt =
 #     你是一个严谨的编程助手……
+
+[tools]
+# CLI 默认超时（模型可显式指定，最大 600 秒）
+cli_timeout = 30
+# 网页抓取总超时、连接超时（秒）
+fetch_timeout = 30
+fetch_connect_timeout = 10
 
 [search]
 # 百度千帆 AI 搜索（联网搜索工具 webSearch），不配置则该工具会提示「未配置 API Key」
 # 接口文档：https://cloud.baidu.com/doc/qianfan-api/s/Hmbu8m06u
-# baidu_qianfan_api_key = bce-v3/ALTAK-your-ak/your-sk
+baidu_qianfan_api_key =
 # 搜索端点（一般不用改）
-# endpoint = https://qianfan.baidubce.com/v2/ai_search/chat/completions
+endpoint = https://qianfan.baidubce.com/v2/ai_search/chat/completions
 # 搜索引擎版本：baidu_search_v1 / baidu_search_v2（默认 v2，数据更丰富）
-# search_source = baidu_search_v2
+search_source = baidu_search_v2
 # 每次搜索返回的条数（1~20）
-# top_k = 5
+top_k = 5
 # 搜索超时（秒）
-# timeout = 30
+timeout = 30
 # 按发布时间过滤：week / month / semiyear / year
-# recency =
+recency =
 # 留空 = 百度搜索模式（只返回网页结果）；
 # 填写千帆已开通的模型名 = 智能搜索生成模式（额外返回模型总结）
-# model =
+model =

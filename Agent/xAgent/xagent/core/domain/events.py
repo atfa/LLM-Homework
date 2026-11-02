@@ -44,4 +44,10 @@ class StreamFailed:
     message: str
 
 
-LLMStreamEvent = TextDelta | ToolCallDelta | StreamCompleted | StreamFailed
+@dataclass(frozen=True, slots=True)
+class TokenUsage:
+    prompt_tokens: int
+    completion_tokens: int = 0
+
+
+LLMStreamEvent = TextDelta | ToolCallDelta | StreamCompleted | StreamFailed | TokenUsage

@@ -23,6 +23,12 @@ class AgentSettings:
     """Agent 引擎参数（不含 API Key 等基础设施配置）。"""
 
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
+    context_window: int = 128_000
+    """应设置为实际模型的上下文窗口。"""
+
+    context_window_default: bool = True
+    """窗口是否来自兜底值，而非明确的模型配置。"""
+
     max_iterations: int = 20
     """单轮问答内允许的最大模型调用次数，防止工具循环失控。"""
 
@@ -30,6 +36,8 @@ class AgentSettings:
     """单个工具结果回传模型的最大字符数，超出部分截断（UI 仍显示完整内容）。"""
 
     def __post_init__(self) -> None:
+        if self.context_window < 1:
+            raise ValueError("context_window 必须 >= 1")
         if self.max_iterations < 1:
             raise ValueError("max_iterations 必须 >= 1")
         if self.max_tool_output_chars < 0:

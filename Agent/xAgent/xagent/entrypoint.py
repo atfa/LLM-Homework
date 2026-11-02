@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -45,8 +46,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.list_tools:
         return _list_tools(args.workspace)
 
+    # 显式配置路径（含环境变量）保持优先；默认仅使用当前目录。
+    config_path = Path(args.config or os.environ.get("XAGENT_CONFIG") or Path.cwd() / "config.ini")
+    if not config_path.exists():
+        from .core.infrastructure.config import DEFAULT_CONFIG
+
+        try:
+            config_path.write_text(DEFAULT_CONFIG, encoding="utf-8")
+        except OSError as exc:
+            print(f"无法创建配置文件：{exc}", file=sys.stderr)
+            return 2
+        from .tui.help_screen import SetupApp
+
+        SetupApp(config_path.resolve()).run()
+        return 0
+
     try:
-        runtime = build_runtime(config_path=args.config, workspace=args.workspace)
+        runtime = build_runtime(config_path=config_path, workspace=args.workspace)
     except AgentError as exc:
         print(f"启动失败：{exc}", file=sys.stderr)
         return 2
