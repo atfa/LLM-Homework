@@ -80,7 +80,11 @@ def build_runtime(
         system_prompt_provider=render_system_prompt,
         context_archive=context_archive,
     )
-    session = ChatSession.create(system_prompt, loaded_skills=loaded_skills)
+    session = ChatSession.create(
+        system_prompt,
+        loaded_skills=loaded_skills,
+        project_root=project_root or app_config.workspace,
+    )
 
     def render_skills() -> tuple[SkillInfo, ...]:
         return tuple(SkillInfo(name=skill.name, description=skill.description) for skill in skills.skills)

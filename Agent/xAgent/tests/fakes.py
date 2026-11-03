@@ -93,7 +93,7 @@ def make_runtime(
         system_prompt_provider=render_system_prompt,
         context_archive=LocalContextArchive(workspace),
     )
-    session = ChatSession.create(prompt, loaded_skills=loaded_skills)
+    session = ChatSession.create(prompt, loaded_skills=loaded_skills, project_root=workspace)
 
     def render_skills() -> tuple[SkillInfo, ...]:
         return tuple(SkillInfo(name=skill.name, description=skill.description) for skill in catalog.skills)

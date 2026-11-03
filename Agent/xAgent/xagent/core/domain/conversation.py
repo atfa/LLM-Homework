@@ -52,6 +52,13 @@ class Conversation:
                 raise ValueError("system 提示词请通过 system_prompt 设置")
             self._messages.append(message)
 
+    def prepend(self, *messages: ChatMessage) -> None:
+        """把消息放到历史最前面，用于会话首次加载的项目上下文。"""
+        for message in messages:
+            if message.role is Role.SYSTEM:
+                raise ValueError("system 提示词请通过 system_prompt 设置")
+        self._messages[0:0] = messages
+
     def replace_history(self, messages: list[ChatMessage]) -> None:
         """仅替换历史；保留 System Prompt 和已加载技能。"""
         self._messages = list(messages)

@@ -10,9 +10,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ..domain.conversation import Conversation
-from ..domain.messages import ChatMessage
+from ..domain.messages import ChatMessage, Role
 from ..domain.skills import LoadedSkills
 from ..domain.tools import ToolCall
+
+AGENTS_FILENAME = "AGENTS.md"
 
 
 def _new_id() -> str:
@@ -21,6 +23,19 @@ def _new_id() -> str:
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def load_agents_md(project_root: str | Path | None = None) -> str:
+    """读取项目根目录的 ``AGENTS.md``；不存在、为空或不可读时返回空串。"""
+    root = Path(project_root) if project_root is not None else Path.cwd()
+    path = root.expanduser() / AGENTS_FILENAME
+    try:
+        if not path.is_file():
+            return ""
+        content = path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeError):
+        return ""
+    return content if content.strip() else ""
 
 
 @dataclass
@@ -35,6 +50,8 @@ class ChatSession:
     state: str = "idle"
     # 原始工具结果（含未成功完成的轮次）独立保留，不受回传截断影响。
     archive_messages: list[ChatMessage] = field(default_factory=list)
+    # 会话创建时读取的 AGENTS.md 正文；只在会话首次加载时注入一次历史。
+    project_instructions: str = ""
 
     @classmethod
     def create(
@@ -42,18 +59,36 @@ class ChatSession:
         system_prompt: str,
         *,
         loaded_skills: LoadedSkills | None = None,
+        project_instructions: str | None = None,
+        project_root: str | Path | None = None,
     ) -> ChatSession:
-        """创建会话；``loaded_skills`` 应与工具注册表共享同一实例。"""
-        return cls(
+        """创建会话；``loaded_skills`` 应与工具注册表共享同一实例。
+
+        默认从 ``project_root``（省略时为当前目录）读取 ``AGENTS.md``，并作为
+        一条历史消息注入。显式传入 ``project_instructions`` 可覆盖该行为，
+        传空串则禁用项目指令注入。
+        """
+        if project_instructions is None:
+            project_instructions = load_agents_md(project_root)
+        session = cls(
             conversation=Conversation(
                 system_prompt=system_prompt,
                 loaded_skills=loaded_skills if loaded_skills is not None else LoadedSkills(),
-            )
+            ),
+            project_instructions=project_instructions,
         )
+        session._inject_project_instructions()
+        return session
 
     @property
     def turn_count(self) -> int:
-        return self.conversation.turn_count
+        count = self.conversation.turn_count
+        # AGENTS.md 是自动注入的项目上下文，不应被用户界面计为一轮问答。
+        history = self.conversation.history()
+        expected = self.project_instructions.strip()
+        if expected and history and history[0].role is Role.USER and history[0].content.strip() == expected:
+            count -= 1
+        return max(count, 0)
 
     @property
     def message_count(self) -> int:
@@ -68,6 +103,18 @@ class ChatSession:
         self.needs_compaction = False
         self.id = _new_id()
         self.created_at = _now()
+        # 新会话重新注入一次；同一会话内不再重复读取文件。
+        self._inject_project_instructions()
+
+    def _inject_project_instructions(self) -> None:
+        """把项目指令放到历史最前面，形成稳定的会话前缀。"""
+        expected = self.project_instructions.strip()
+        if not expected:
+            return
+        for message in self.conversation.history():
+            if message.role is Role.USER and message.content.strip() == expected:
+                return
+        self.conversation.prepend(ChatMessage.user(self.project_instructions))
 
     def save(self, directory: Path) -> None:
         """原子保存完整上下文；不会保存 API Key。"""
@@ -79,6 +126,7 @@ class ChatSession:
             "created_at": self.created_at.isoformat(),
             "context_tokens": self.context_tokens,
             "needs_compaction": self.needs_compaction,
+            "project_instructions": self.project_instructions,
             "messages": [message.to_wire() for message in self.conversation.history()],
             "archive": [message.to_wire() for message in self.archive_messages],
             "skills": {
@@ -131,6 +179,9 @@ class ChatSession:
         skills = data.get("skills", {})
         if not isinstance(skills, dict) or not all(isinstance(v, str) for v in skills.values()):
             raise ValueError("无效技能记录")
+        project_instructions = data.get("project_instructions", "")
+        if not isinstance(project_instructions, str):
+            raise ValueError("无效项目指令记录")
         self.conversation.replace_history(messages)
         self.conversation.loaded_skills.clear()
         for name, body in skills.items():
@@ -139,3 +190,5 @@ class ChatSession:
         self.archive_messages = archive
         self.context_tokens = tokens
         self.needs_compaction = bool(data.get("needs_compaction", False))
+        # 恢复的历史已经包含首次注入的消息，不会再次追加。
+        self.project_instructions = project_instructions
